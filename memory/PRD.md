@@ -108,5 +108,13 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - **Auto monthly reset**: `billing/monthly_reset.py` — `apply_monthly_reset(force)` sets each org's credits to `PLAN_CREDITS[plan]` (free 200 / pro 10k / business 50k) + `last_reset_month`. Startup backfills current month (no wipe on deploy) then hourly loop refills on calendar rollover. Manual trigger `POST /api/admin/credits/monthly-reset` + **"Refill to plan"** button in the Orgs tab.
 - Pytest: `/app/backend/tests/test_admin_v2.py` (6/6).
 
+## Phase 14 — Unified multimodal "AI Studio" chat (2026-06 update) ✅ verified (backend 6/6, frontend 100%)
+- **Merged Create Studio into the chat** (ChatGPT-style). Removed the Create Studio page/route/nav (`Create.js` deleted, `/app/create` → redirect to chat); chat nav renamed **"AI Studio"**.
+- **Intent router**: `gateway.route_intent` (fast `gemini-3-flash-preview`) classifies each message → `chat|image|video|voice|document|code|webapp` + extracted prompt + friendly reply.
+- **Unified endpoint** `POST /api/orgs/{oid}/chat/sessions/{sid}/agent`: generates the right modality and returns `{action, kind, content, media}`; messages persist `kind`+`media`. Image/voice/document/code inline; **video & webapp run as background jobs** (poll `/creations/{cid}/status`) to avoid the ~60s ingress timeout on long generations.
+- **Webapp/games/sites**: generates ONE self-contained HTML doc → stored as a creation → rendered as a **live iframe preview** in chat with Open (full screen) + Download.
+- **Frontend `Chat.js`** rewritten: markdown (react-markdown@9), code block + Copy, inline image/voice/video with Download, webapp live preview, suggestion chips, loading states, session CRUD.
+- Pytest: `/app/backend/tests/test_unified_agent.py` (6/6).
+
 ## Ownership & billing model (clarified to user, 2026-06)
 - Owner owns 100% of the code/IP. Owner pays Emergent via Universal Key for all real generations (image/video/voice cost real money — in-app "credits" are just an owner-controlled meter). End-users pay the owner via Stripe.

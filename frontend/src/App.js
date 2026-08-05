@@ -60,6 +60,7 @@ function AppRouter() {
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
         <Route index element={<Overview />} />
         <Route path="chat" element={<Chat />} />
+        <Route path="create" element={<Navigate to="/app/chat" replace />} />
         <Route path="creations" element={<Creations />} />
         <Route path="agents" element={<Agents />} />
         <Route path="memory" element={<Memory />} />
