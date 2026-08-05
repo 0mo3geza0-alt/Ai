@@ -11,6 +11,9 @@ import Overview from "@/pages/Overview";
 import Chat from "@/pages/Chat";
 import Create from "@/pages/Create";
 import Creations from "@/pages/Creations";
+import Agents from "@/pages/Agents";
+import Memory from "@/pages/Memory";
+import Security from "@/pages/Security";
 import Admin from "@/pages/Admin";
 import Organization from "@/pages/Organization";
 import ApiKeys from "@/pages/ApiKeys";
@@ -55,6 +58,9 @@ function AppRouter() {
         <Route path="chat" element={<Chat />} />
         <Route path="create" element={<Create />} />
         <Route path="creations" element={<Creations />} />
+        <Route path="agents" element={<Agents />} />
+        <Route path="memory" element={<Memory />} />
+        <Route path="security" element={<Security />} />
         <Route path="admin" element={<Admin />} />
         <Route path="organization" element={<Organization />} />
         <Route path="api-keys" element={<ApiKeys />} />

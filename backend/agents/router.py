@@ -103,6 +103,87 @@ async def create_agent(org_id: str, body: AgentBody, ctx: dict = Depends(require
     return _public(a)
 
 
+# --------------------------------------------------------------- team run (registered BEFORE /agents/{aid}/* so FastAPI matches literal "team" first)
+def _parse_plan(text: str):
+    t = text.strip()
+    if "```" in t:
+        t = t.split("```")[1] if t.split("```")[1][:4] != "json" else t.split("```")[1][4:]
+        t = t.split("```")[0] if "```" in t else t
+    start, end = t.find("["), t.rfind("]")
+    if start != -1 and end != -1:
+        t = t[start:end + 1]
+    try:
+        data = json.loads(t)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+async def _run_team(db, org_id: str, body: "TeamRunBody", user_id: str):
+    agents = await db.agents.find(
+        {"_id": {"$in": [ObjectId(a) for a in body.agent_ids]}, "org_id": org_id}).to_list(20)
+    if not agents:
+        raise HTTPException(status_code=404, detail="No agents found")
+    by_id = {str(a["_id"]): a for a in agents}
+    remaining = await spend(db, org_id, COST["team"])
+    try:
+        roster = "\n".join(f'- id={str(a["_id"])} name="{a["name"]}" role={a.get("role")}: {a.get("description","")}'
+                           for a in agents)
+        plan_raw = await gateway.generate_text(
+            session_id=uuid.uuid4().hex,
+            system="You are a project manager AI that coordinates a team of specialized AI agents.",
+            prompt=(f"Goal:\n{body.goal}\n\nAvailable agents:\n{roster}\n\n"
+                    "Break the goal into 1 to 4 sequential subtasks and assign each to the most suitable agent. "
+                    'Respond ONLY with a JSON array, e.g. '
+                    '[{"agent_id":"<id>","task":"<clear subtask>"}]. No prose, no markdown.'))
+        plan = _parse_plan(plan_raw)
+        if not plan:
+            plan = [{"agent_id": str(a["_id"]), "task": body.goal} for a in agents]
+
+        steps = []
+        for step in plan[:4]:
+            agent = by_id.get(str(step.get("agent_id")))
+            if not agent:
+                agent = agents[0]
+            task = step.get("task") or body.goal
+            r = await _run_agent_core(db, org_id, agent, task, None)
+            steps.append({"agent_id": str(agent["_id"]), "agent_name": agent["name"],
+                          "task": task, "output": r["output"], "tools_used": r["tools_used"],
+                          "sources": r["sources"]})
+
+        synthesis = "\n\n".join(f'[{s["agent_name"]}] task: {s["task"]}\nresult:\n{s["output"]}' for s in steps)
+        final = await gateway.generate_text(
+            session_id=uuid.uuid4().hex,
+            system="You are the manager. Synthesize the team's work into one cohesive, well-structured final deliverable in markdown. Reply in the user's language.",
+            prompt=f"Goal:\n{body.goal}\n\nTeam work:\n{synthesis}\n\nProduce the final result.")
+    except Exception as e:
+        await refund(db, org_id, COST["team"])
+        raise HTTPException(status_code=502, detail=f"Team run error: {e}")
+
+    run = {"org_id": org_id, "type": "team", "user_id": user_id,
+           "input": body.goal, "output": final, "steps": steps,
+           "agent_ids": body.agent_ids, "created_at": utcnow()}
+    res = await db.agent_runs.insert_one(run)
+    return {"id": str(res.inserted_id), "output": final, "steps": steps, "credits": remaining}
+
+
+@router.post("/orgs/{org_id}/agents/team/run")
+async def team_run(org_id: str, body: TeamRunBody, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    return await _run_team(db, org_id, body, ctx["user"]["id"])
+
+
+@router.get("/orgs/{org_id}/agents/team/runs")
+async def team_runs(org_id: str, ctx: dict = Depends(require_permission("file:read"))):
+    db = get_db()
+    docs = await db.agent_runs.find({"org_id": org_id, "type": "team"}).sort("created_at", -1).to_list(50)
+    return [{"id": str(d["_id"]), "input": d.get("input"), "output": d.get("output"),
+             "steps": d.get("steps", []), "created_at": _iso(d.get("created_at"))} for d in docs]
+
+
+# --------------------------------------------------------------- CRUD (agent by id)
 @router.patch("/orgs/{org_id}/agents/{aid}")
 async def update_agent(org_id: str, aid: str, body: AgentBody, ctx: dict = Depends(require_permission("file:write"))):
     db = get_db()
@@ -196,77 +277,4 @@ async def agent_runs(org_id: str, aid: str, ctx: dict = Depends(require_permissi
              "type": d.get("type", "single"), "created_at": _iso(d.get("created_at"))} for d in docs]
 
 
-# --------------------------------------------------------------- team run (manager orchestration)
-def _parse_plan(text: str):
-    t = text.strip()
-    if "```" in t:
-        t = t.split("```")[1] if t.split("```")[1][:4] != "json" else t.split("```")[1][4:]
-        t = t.split("```")[0] if "```" in t else t
-    start, end = t.find("["), t.rfind("]")
-    if start != -1 and end != -1:
-        t = t[start:end + 1]
-    try:
-        data = json.loads(t)
-        if isinstance(data, list):
-            return data
-    except Exception:
-        pass
-    return None
 
-
-@router.post("/orgs/{org_id}/agents/team/run")
-async def team_run(org_id: str, body: TeamRunBody, ctx: dict = Depends(require_permission("file:write"))):
-    db = get_db()
-    agents = await db.agents.find(
-        {"_id": {"$in": [ObjectId(a) for a in body.agent_ids]}, "org_id": org_id}).to_list(20)
-    if not agents:
-        raise HTTPException(status_code=404, detail="No agents found")
-    by_id = {str(a["_id"]): a for a in agents}
-    remaining = await spend(db, org_id, COST["team"])
-    try:
-        roster = "\n".join(f'- id={str(a["_id"])} name="{a["name"]}" role={a.get("role")}: {a.get("description","")}'
-                           for a in agents)
-        plan_raw = await gateway.generate_text(
-            session_id=uuid.uuid4().hex,
-            system="You are a project manager AI that coordinates a team of specialized AI agents.",
-            prompt=(f"Goal:\n{body.goal}\n\nAvailable agents:\n{roster}\n\n"
-                    "Break the goal into 1 to 4 sequential subtasks and assign each to the most suitable agent. "
-                    'Respond ONLY with a JSON array, e.g. '
-                    '[{"agent_id":"<id>","task":"<clear subtask>"}]. No prose, no markdown.'))
-        plan = _parse_plan(plan_raw)
-        if not plan:
-            plan = [{"agent_id": str(a["_id"]), "task": body.goal} for a in agents]
-
-        steps = []
-        for step in plan[:4]:
-            agent = by_id.get(str(step.get("agent_id")))
-            if not agent:
-                agent = agents[0]
-            task = step.get("task") or body.goal
-            r = await _run_agent_core(db, org_id, agent, task, None)
-            steps.append({"agent_id": str(agent["_id"]), "agent_name": agent["name"],
-                          "task": task, "output": r["output"], "tools_used": r["tools_used"],
-                          "sources": r["sources"]})
-
-        synthesis = "\n\n".join(f'[{s["agent_name"]}] task: {s["task"]}\nresult:\n{s["output"]}' for s in steps)
-        final = await gateway.generate_text(
-            session_id=uuid.uuid4().hex,
-            system="You are the manager. Synthesize the team's work into one cohesive, well-structured final deliverable in markdown. Reply in the user's language.",
-            prompt=f"Goal:\n{body.goal}\n\nTeam work:\n{synthesis}\n\nProduce the final result.")
-    except Exception as e:
-        await refund(db, org_id, COST["team"])
-        raise HTTPException(status_code=502, detail=f"Team run error: {e}")
-
-    run = {"org_id": org_id, "type": "team", "user_id": ctx["user"]["id"],
-           "input": body.goal, "output": final, "steps": steps,
-           "agent_ids": body.agent_ids, "created_at": utcnow()}
-    res = await db.agent_runs.insert_one(run)
-    return {"id": str(res.inserted_id), "output": final, "steps": steps, "credits": remaining}
-
-
-@router.get("/orgs/{org_id}/agents/team/runs")
-async def team_runs(org_id: str, ctx: dict = Depends(require_permission("file:read"))):
-    db = get_db()
-    docs = await db.agent_runs.find({"org_id": org_id, "type": "team"}).sort("created_at", -1).to_list(50)
-    return [{"id": str(d["_id"]), "input": d.get("input"), "output": d.get("output"),
-             "steps": d.get("steps", []), "created_at": _iso(d.get("created_at"))} for d in docs]

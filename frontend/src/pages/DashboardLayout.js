@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins } from "lucide-react";
+import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert } from "lucide-react";
 import { useAuth, api } from "@/context/AuthContext";
 import { Logo } from "@/components/shared";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -35,12 +35,17 @@ export default function DashboardLayout() {
     { to: "/app/chat", icon: MessageSquare, label: "AI Chat", id: "chat" },
     { to: "/app/create", icon: Sparkles, label: "Create Studio", id: "create" },
     { to: "/app/creations", icon: Images, label: "Creations", id: "creations" },
+    { to: "/app/agents", icon: Bot, label: "AI Agents", id: "agents" },
+    { to: "/app/memory", icon: Brain, label: "Knowledge", id: "memory" },
     { to: "/app/projects", icon: FolderGit2, label: "Projects", id: "projects" },
     { to: "/app/organization", icon: Building2, label: "Organization", id: "organization" },
     { to: "/app/api-keys", icon: KeyRound, label: "API Keys", id: "api-keys" },
     { to: "/app/settings", icon: SettingsIcon, label: "Settings", id: "settings" },
   ];
-  if (user?.global_role === "admin") items.push({ to: "/app/admin", icon: Shield, label: "Admin", id: "admin" });
+  if (user?.global_role === "admin") {
+    items.push({ to: "/app/security", icon: ShieldAlert, label: "Security", id: "security" });
+    items.push({ to: "/app/admin", icon: Shield, label: "Admin", id: "admin" });
+  }
 
   const doLogout = async () => { await logout(); nav("/"); };
 
