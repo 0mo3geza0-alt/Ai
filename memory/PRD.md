@@ -116,5 +116,13 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - **Frontend `Chat.js`** rewritten: markdown (react-markdown@9), code block + Copy, inline image/voice/video with Download, webapp live preview, suggestion chips, loading states, session CRUD.
 - Pytest: `/app/backend/tests/test_unified_agent.py` (6/6).
 
+## Phase 15 — Chat power-ups: attachments, streaming, regenerate, app-edit (2026-06) ✅ verified (backend 11/11, frontend 100%, regenerate bug fixed)
+- **File/Image attachments**: `POST /api/orgs/{oid}/uploads` (multipart, ≤15MB) + `GET /uploads/{uid}/file`. Chat paperclip uploads → attachment chip. Image → vision (describe) or **image edit** (nano banana with source image); non-image file (pdf/txt/csv) folded in as context via `gateway.describe_media`. User bubble shows the image thumbnail.
+- **Streaming replies**: SSE `POST .../agent/stream` (events start/delta*/done, `X-Accel-Buffering: no`); `gateway.stream_chat` streams tokens (supports image/file). Frontend fetch ReadableStream appends deltas live.
+- **Regenerate & variations**: button under each assistant message re-runs the preceding user prompt (preserves the original attachment — drop bug fixed).
+- **Edit the app**: follow-ups like "make the header blue" re-route to webapp and rebuild using the previous app's HTML as context (`_last_webapp_html`).
+- Refactor: non-chat gen extracted to `_run_action`; `edit_image`/`describe_media`/`stream_chat` added; `route_intent(has_image,has_file)` + app-edit hint.
+- Pytest: `/app/backend/tests/test_streaming_uploads.py` (5/5).
+
 ## Ownership & billing model (clarified to user, 2026-06)
 - Owner owns 100% of the code/IP. Owner pays Emergent via Universal Key for all real generations (image/video/voice cost real money — in-app "credits" are just an owner-controlled meter). End-users pay the owner via Stripe.

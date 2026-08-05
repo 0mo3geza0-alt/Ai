@@ -179,7 +179,7 @@ export default function Chat() {
     let sid = active;
     if (!sid) { const { data } = await api.post(`/orgs/${oid}/chat/sessions`, {}); sid = data.id; setActive(sid); loadSessions(); }
     setInput(""); setAttachment(null);
-    setMessages((m) => [...m, { role: "user", content: text, kind: "text", media: useAttach ? { type: useAttach.kind, url: useAttach.url, name: useAttach.name } : null }]);
+    setMessages((m) => [...m, { role: "user", content: text, kind: "text", attachment: useAttach || null, media: useAttach ? { type: useAttach.kind, url: useAttach.url, name: useAttach.name } : null }]);
     setMessages((m) => [...m, { role: "assistant", content: "", kind: "text", media: null, _streaming: true }]);
     setSending(true);
     const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
