@@ -7,7 +7,7 @@ import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 
 export default function Projects() {
   const { activeOrg } = useOutletContext();
@@ -43,7 +43,9 @@ export default function Projects() {
               <Button data-testid="new-project-btn" className="rounded-full ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity"><Plus className="w-4 h-4 me-2" /> New project</Button>
             </DialogTrigger>
             <DialogContent className="bg-[#0C0C14] border border-[rgba(255,255,255,0.12)] text-white">
-              <DialogHeader><DialogTitle className="font-display">Create project</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle className="font-display">Create project</DialogTitle>
+                <DialogDescription className="text-[#64748B]">A workspace for files, artifacts and versions.</DialogDescription>
+              </DialogHeader>
               <form onSubmit={create} className="space-y-4 mt-2">
                 <Input data-testid="project-name-input" required placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)}
                   className="bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white focus:border-[#4F46E5] transition-colors" />
