@@ -35,6 +35,9 @@ PLAN_BY_LOOKUP = {
     "business_yearly": ("business", 50000),
 }
 
+# Monthly credit allowance per plan (used by admin + auto monthly reset).
+PLAN_CREDITS = {"free": 200, "pro": 10000, "business": 50000}
+
 
 def ensure_tax_settings():
     """Set a head office address so Stripe Tax (automatic_tax) works in the sandbox."""

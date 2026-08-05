@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Users, Building2, FolderGit2, KeyRound, MessageSquare, FileText, Code2, Image as ImageIcon, AudioLines, Video, Music, Search as SearchIcon, Trash2, Ban, CheckCircle2, ShieldCheck, Coins, Gift } from "lucide-react";
+import { Users, Building2, FolderGit2, KeyRound, MessageSquare, FileText, Code2, Image as ImageIcon, AudioLines, Video, Music, Search as SearchIcon, Trash2, Ban, CheckCircle2, ShieldCheck, Coins, Gift, History, RefreshCw } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,11 +20,13 @@ export default function Admin() {
   const [confirmDel, setConfirmDel] = useState(null);
   const [creditInput, setCreditInput] = useState({});
   const [grantAmt, setGrantAmt] = useState("");
+  const [activity, setActivity] = useState([]);
 
   const loadStats = () => api.get("/admin/stats").then((r) => setStats(r.data)).catch(() => setDenied(true));
   const loadUsers = () => api.get("/admin/users").then((r) => setUsers(r.data)).catch(() => setDenied(true));
   const loadOrgs = () => api.get("/admin/organizations").then((r) => setOrgs(r.data)).catch(() => {});
-  useEffect(() => { loadStats(); loadUsers(); loadOrgs(); }, []);
+  const loadActivity = () => api.get("/admin/activity").then((r) => setActivity(r.data)).catch(() => {});
+  useEffect(() => { loadStats(); loadUsers(); loadOrgs(); loadActivity(); }, []);
 
   if (denied) return <div className="px-5 lg:px-8 py-8 text-[#64748B]" data-testid="admin-denied">Admin access required.</div>;
 
@@ -43,25 +45,29 @@ export default function Admin() {
   ] : [];
 
   const setRole = async (u, role) => {
-    try { await api.patch(`/admin/users/${u.id}/role`, { global_role: role }); toast.success("Role updated"); loadUsers(); }
+    try { await api.patch(`/admin/users/${u.id}/role`, { global_role: role }); toast.success("Role updated"); loadUsers(); loadActivity(); }
     catch (e) { err(e); }
   };
   const toggleSuspend = async (u) => {
-    try { await api.patch(`/admin/users/${u.id}/suspend`, { suspended: !u.suspended }); toast.success(u.suspended ? "Account reactivated" : "Account suspended"); loadUsers(); }
+    try { await api.patch(`/admin/users/${u.id}/suspend`, { suspended: !u.suspended }); toast.success(u.suspended ? "Account reactivated" : "Account suspended"); loadUsers(); loadActivity(); }
     catch (e) { err(e); }
   };
   const deleteUser = async (u) => {
-    try { await api.delete(`/admin/users/${u.id}`); toast.success("User deleted"); setConfirmDel(null); loadUsers(); loadOrgs(); loadStats(); }
+    try { const { data } = await api.delete(`/admin/users/${u.id}`); toast.success(`User deleted${data.orgs_removed ? ` (+${data.orgs_removed} org cleaned)` : ""}`); setConfirmDel(null); loadUsers(); loadOrgs(); loadStats(); loadActivity(); }
     catch (e) { err(e); }
   };
   const patchOrg = async (o, body, okMsg) => {
-    try { const { data } = await api.patch(`/admin/organizations/${o.id}`, body); toast.success(okMsg); setOrgs((prev) => prev.map((x) => x.id === o.id ? { ...x, plan: data.plan, credits: data.credits } : x)); }
+    try { const { data } = await api.patch(`/admin/organizations/${o.id}`, body); toast.success(okMsg); setOrgs((prev) => prev.map((x) => x.id === o.id ? { ...x, plan: data.plan, credits: data.credits } : x)); loadActivity(); }
     catch (e) { err(e); }
   };
   const grantAll = async () => {
     const n = parseInt(grantAmt, 10);
     if (!n) { toast.error("Enter a credit amount (use a negative number to deduct)"); return; }
-    try { const { data } = await api.post("/admin/credits/grant-all", { add_credits: n }); toast.success(`${n > 0 ? "Granted" : "Deducted"} ${Math.abs(n)} credits across ${data.updated} orgs`); setGrantAmt(""); loadOrgs(); }
+    try { const { data } = await api.post("/admin/credits/grant-all", { add_credits: n }); toast.success(`${n > 0 ? "Granted" : "Deducted"} ${Math.abs(n)} credits across ${data.updated} orgs`); setGrantAmt(""); loadOrgs(); loadActivity(); }
+    catch (e) { err(e); }
+  };
+  const monthlyReset = async () => {
+    try { const { data } = await api.post("/admin/credits/monthly-reset"); toast.success(`Refilled ${data.updated} orgs to their plan allowance`); loadOrgs(); loadActivity(); }
     catch (e) { err(e); }
   };
 
@@ -80,6 +86,7 @@ export default function Admin() {
           <TabsTrigger value="overview" data-testid="admin-tab-overview" className="data-[state=active]:bg-white/10">Overview</TabsTrigger>
           <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-white/10">Users</TabsTrigger>
           <TabsTrigger value="orgs" data-testid="admin-tab-orgs" className="data-[state=active]:bg-white/10">Organizations</TabsTrigger>
+          <TabsTrigger value="activity" data-testid="admin-tab-activity" className="data-[state=active]:bg-white/10">Activity</TabsTrigger>
         </TabsList>
 
         {/* OVERVIEW */}
@@ -145,6 +152,7 @@ export default function Admin() {
             <div className="flex items-center gap-2 sm:ms-auto">
               <Input data-testid="admin-grant-all-input" type="number" value={grantAmt} onChange={(e) => setGrantAmt(e.target.value)} placeholder="e.g. 500 (or -100)" className="w-40 h-9 bg-[#0C0C14] border-[rgba(255,255,255,0.12)] text-white" />
               <Button data-testid="admin-grant-all-btn" onClick={grantAll} className="h-9 rounded-full ai-gradient-bg text-white border-0"><Coins className="w-4 h-4 me-1" /> Apply to all</Button>
+              <Button data-testid="admin-monthly-reset-btn" onClick={monthlyReset} variant="outline" className="h-9 rounded-full border-[rgba(255,255,255,0.15)] bg-transparent text-white"><RefreshCw className="w-4 h-4 me-1" /> Refill to plan</Button>
             </div>
           </div>
           <div className="relative mb-4 max-w-sm">
@@ -176,6 +184,25 @@ export default function Admin() {
               </div>
             ))}
             {fOrgs.length === 0 && <p className="px-5 py-6 text-sm text-[#64748B]">No organizations found.</p>}
+          </div>
+        </TabsContent>
+
+        {/* ACTIVITY LOG */}
+        <TabsContent value="activity">
+          <div className="flex items-center gap-2 mb-4 text-sm text-[#94A3B8]"><History className="w-4 h-4 text-[#A855F7]" /> Every credit change, suspension and deletion is recorded here.</div>
+          <div className={tab + " overflow-hidden"}>
+            {activity.length === 0 ? <p className="px-5 py-6 text-sm text-[#64748B]" data-testid="admin-activity-empty">No admin activity yet.</p> : activity.map((a) => (
+              <div key={a.id} data-testid={`admin-activity-${a.id}`} className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[rgba(255,255,255,0.04)] last:border-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={pill + " capitalize " + (a.action === "delete" ? "text-red-400" : a.action === "suspend" ? "text-amber-400" : a.action === "reactivate" ? "text-emerald-400" : "text-[#A855F7]")}>{a.action.replace(/_/g, " ")}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-white truncate">{a.target_label || a.target_type} {a.detail && <span className="text-[#64748B]">· {a.detail}</span>}</p>
+                    <p className="text-xs text-[#64748B] truncate">by {a.actor_email}</p>
+                  </div>
+                </div>
+                <span className="text-xs text-[#64748B] shrink-0">{a.created_at ? new Date(a.created_at).toLocaleString() : ""}</span>
+              </div>
+            ))}
           </div>
         </TabsContent>
       </Tabs>

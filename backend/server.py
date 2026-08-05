@@ -149,6 +149,11 @@ async def on_startup():
         _asyncio.create_task(_asyncio.to_thread(setup_catalog))
     except Exception as e:
         logger.error("Stripe setup skipped: %s", e)
+    try:
+        from billing.monthly_reset import monthly_reset_loop
+        _asyncio.create_task(monthly_reset_loop())
+    except Exception as e:
+        logger.error("Monthly reset loop not started: %s", e)
     logger.info("%s %s (%s) started", settings.app_name, settings.app_version, settings.phase)
 
 
