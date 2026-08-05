@@ -149,7 +149,13 @@ export default function Agents() {
   const selectedAgent = useMemo(() => agents.find((a) => a.id === selected), [agents, selected]);
 
   const del = async (id, e) => { e.stopPropagation(); if (!window.confirm("Delete this agent?")) return; await api.delete(`/orgs/${oid}/agents/${id}`); if (selected === id) setSelected(null); setTeamIds((t) => t.filter((x) => x !== id)); load(); };
-  const edit = (a, e) => { e.stopPropagation(); setEditing(a); setFormOpen(true); };
+  const edit = async (a, e) => {
+    e.stopPropagation();
+    let knowledge = "";
+    try { const { data } = await api.get(`/orgs/${oid}/memories`); knowledge = data.filter((m) => m.agent_id === a.id).map((m) => m.text).join("\n"); } catch { /* ignore */ }
+    setEditing({ ...a, provider: a.provider || "auto", model: a.model || "", knowledge });
+    setFormOpen(true);
+  };
   const openNew = () => { setEditing(null); setFormOpen(true); };
 
   const pickCard = (a) => {
@@ -259,7 +265,7 @@ export default function Agents() {
         </div>
       )}
 
-      <AgentForm open={formOpen} onOpenChange={setFormOpen} initial={editing ? { ...editing, provider: editing.provider || "auto", model: editing.model || "", knowledge: "" } : null} onSaved={load} oid={oid} />
+      <AgentForm open={formOpen} onOpenChange={setFormOpen} initial={editing} onSaved={load} oid={oid} />
     </div>
   );
 }

@@ -65,3 +65,14 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - Chat streaming is server-simulated (full reply then chunked), not SDK token streaming.
 - Voice-cloning (ElevenLabs), real Stripe billing, browser-automation module, plugin marketplace, K8s deploy: not built (need keys / not runnable in preview).
 - Video/music are slow (~1-3 min) — handled via async jobs + polling.
+
+## Phase 7 — Agents / Memory / Security (2026-06 update) ✅ verified (backend 5/5 pytest, frontend ~90% Playwright)
+- **AI Agent Builder UI** (`frontend/src/pages/Agents.js`): create/edit/delete custom agents (name, role, provider, system prompt, tools = web_search + memory-RAG, per-agent knowledge, color). Single-run with output + sources + run history; Team-run mode (manager AI delegates subtasks to selected agents and synthesizes a final result). Credits: agent=3, team=8.
+- **Knowledge Base UI** (`frontend/src/pages/Memory.js`): add manual knowledge (text + tags), semantic vector search (fastembed dim=384, cosine) with relevance scores, delete. Agents recall knowledge via the memory RAG tool.
+- **Security & Audit UI** (`frontend/src/pages/Security.js`, admin-only): overview stat cards (total/blocked/error/write events), rate-limit policy, audit-log table with All/Blocked/Errors filter. Sidebar Security + Admin links gated to `global_role==admin`.
+- Routes wired in `App.js` (`/app/agents`, `/app/memory`, `/app/security`) + sidebar nav in `DashboardLayout.js`.
+- **Fixes this session:**
+  - Route-ordering bug: `/agents/team/run` was shadowed by `/agents/{aid}/run` (FastAPI matches in declaration order) → team routes moved above dynamic `{aid}` routes in `agents/router.py`.
+  - Edit-agent knowledge wipe: edit form now prefills existing agent knowledge (fetched from memories filtered by `agent_id`) so saving no longer silently erases it.
+- Backend routes: `/api/orgs/{oid}/agents[/{aid}[/run|/runs]|/team/run|/team/runs]`, `/api/orgs/{oid}/memories[/search]`, `/api/admin/security/overview`, `/api/admin/audit-logs`.
+- Pytest suite: `/app/backend/tests/test_phase7_agents_memory_security.py`.
