@@ -32,8 +32,7 @@ export default function DashboardLayout() {
 
   const items = [
     { to: "/app", end: true, icon: LayoutDashboard, label: "Overview", id: "overview" },
-    { to: "/app/chat", icon: MessageSquare, label: "AI Chat", id: "chat" },
-    { to: "/app/create", icon: Sparkles, label: "Create Studio", id: "create" },
+    { to: "/app/chat", icon: Sparkles, label: "AI Studio", id: "chat" },
     { to: "/app/creations", icon: Images, label: "Creations", id: "creations" },
     { to: "/app/agents", icon: Bot, label: "AI Agents", id: "agents" },
     { to: "/app/memory", icon: Brain, label: "Knowledge", id: "memory" },

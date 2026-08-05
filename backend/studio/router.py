@@ -29,6 +29,10 @@ class ChatSendBody(BaseModel):
     model: str | None = None
 
 
+class AgentBody(BaseModel):
+    message: str
+
+
 class DocBody(BaseModel):
     prompt: str
     mode: str = "report"          # report | presentation | article
@@ -142,7 +146,8 @@ async def chat_delete_session(org_id: str, sid: str, ctx: dict = Depends(require
 async def chat_messages(org_id: str, sid: str, ctx: dict = Depends(require_permission("file:read"))):
     db = get_db()
     msgs = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
-    return [{"role": m["role"], "content": m["content"], "created_at": _iso(m["created_at"])} for m in msgs]
+    return [{"role": m["role"], "content": m["content"], "kind": m.get("kind", "text"),
+             "media": m.get("media"), "created_at": _iso(m["created_at"])} for m in msgs]
 
 
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/send")
@@ -172,6 +177,140 @@ async def chat_send(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Depen
         upd["title"] = body.message[:40]
     await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
     return {"reply": reply, "credits": remaining, "title": upd.get("title", session.get("title"))}
+
+
+def _asset_url(org_id: str, cid: str) -> str:
+    return f"/api/orgs/{org_id}/creations/{cid}/file"
+
+
+WEBAPP_SYSTEM = ("You build complete, self-contained single-file web apps, games and websites. "
+                 "Output ONE full, valid HTML document with inline <style> and <script>, modern and responsive, "
+                 "avoiding external files/CDNs where possible. Output ONLY the HTML inside a single ```html code block.")
+
+
+async def _run_webapp_job(org_id: str, cid: str, prompt: str):
+    db = get_db()
+    try:
+        raw = await gateway.generate_text(session_id=uuid.uuid4().hex, system=WEBAPP_SYSTEM, prompt=prompt)
+        html = gateway.strip_fences(raw)
+        path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.html"
+        await asyncio.to_thread(put_object, path, html.encode("utf-8"), "text/html")
+        await db.creations.update_one({"_id": ObjectId(cid)},
+                                      {"$set": {"status": "done", "storage_path": path,
+                                                "content_type": "text/html", "content": html}})
+    except Exception as e:
+        await _refund(db, org_id, "code")
+        await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "failed", "error": str(e)[:200]}})
+
+
+# ----------------------------------------------------------------- unified agent (multimodal chat)
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/agent")
+async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    user_id = ctx["user"]["id"]
+    ts = utcnow()
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
+                                       "content": body.message, "kind": "text", "media": None, "created_at": ts})
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+
+    route = await gateway.route_intent(body.message, context)
+    action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
+    kind, content, media = "text", (reply or ""), None
+
+    if action == "image":
+        await _spend(db, org_id, "image")
+        try:
+            mime, data = await gateway.generate_image(prompt)
+            ext = "png" if "png" in mime else "jpg"
+            path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.{ext}"
+            put_object(path, data, mime)
+        except Exception as e:
+            await _refund(db, org_id, "image"); raise HTTPException(status_code=502, detail=f"Image error: {e}")
+        cid = await _log_creation(db, org_id, user_id, "image", prompt[:60], prompt, storage_path=path, content_type=mime)
+        kind, content = "image", (reply or "Here's your image:")
+        media = {"type": "image", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
+
+    elif action == "voice":
+        await _spend(db, org_id, "audio")
+        try:
+            audio = await gateway.generate_audio(prompt, "nova")
+            path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.mp3"
+            put_object(path, audio, "audio/mpeg")
+        except Exception as e:
+            await _refund(db, org_id, "audio"); raise HTTPException(status_code=502, detail=f"Voice error: {e}")
+        cid = await _log_creation(db, org_id, user_id, "audio", prompt[:60], prompt, storage_path=path, content_type="audio/mpeg")
+        kind, content = "voice", (reply or "Here's your voiceover:")
+        media = {"type": "voice", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
+
+    elif action == "document":
+        await _spend(db, org_id, "document")
+        try:
+            doc = await gateway.generate_text(session_id=uuid.uuid4().hex,
+                system="You are an expert writer. Write clear, well-structured long-form content in markdown.",
+                prompt=prompt)
+        except Exception as e:
+            await _refund(db, org_id, "document"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        cid = await _log_creation(db, org_id, user_id, "document", prompt[:60], prompt, content=doc)
+        kind, content = "document", doc
+        media = {"type": "document", "cid": cid, "status": "done"}
+
+    elif action == "code":
+        await _spend(db, org_id, "code")
+        language = lang or "python"
+        system = (f"You are an expert {language} engineer. Output production-ready {language} code only, "
+                  f"inside a single fenced code block, with brief inline comments. No prose.")
+        try:
+            code = await gateway.generate_text(session_id=uuid.uuid4().hex, system=system, prompt=prompt)
+        except Exception as e:
+            await _refund(db, org_id, "code"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        cid = await _log_creation(db, org_id, user_id, "code", prompt[:60], prompt, content=code, meta={"language": language})
+        kind, content = "code", code
+        media = {"type": "code", "language": language, "cid": cid, "status": "done"}
+
+    elif action == "webapp":
+        await _spend(db, org_id, "code")
+        cid = await _log_creation(db, org_id, user_id, "webapp", prompt[:60], prompt, meta={"status": "processing"})
+        await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
+        asyncio.create_task(_run_webapp_job(org_id, cid, prompt))
+        kind, content = "webapp", (reply or "Building your app — this takes a few seconds…")
+        media = {"type": "webapp", "cid": cid, "status": "processing",
+                 "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
+
+    elif action == "video":
+        await _spend(db, org_id, "video")
+        cid = await _log_creation(db, org_id, user_id, "video", prompt[:60], prompt, meta={"status": "processing"})
+        await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
+        asyncio.create_task(_run_media_job(org_id, cid, "video", lambda: gateway.generate_video(prompt), "mp4"))
+        kind, content = "video", (reply or "Rendering your video — this can take 1-3 minutes…")
+        media = {"type": "video", "cid": cid, "status": "processing",
+                 "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
+
+    else:  # chat
+        await _spend(db, org_id, "chat")
+        try:
+            content = await gateway.generate_text(session_id=sid,
+                system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
+                prompt=f"user: {body.message}", history=context)
+        except Exception as e:
+            await _refund(db, org_id, "chat"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        kind, media = "text", None
+
+    a_ts = utcnow()
+    adoc = {"session_id": sid, "org_id": org_id, "role": "assistant",
+            "content": content, "kind": kind, "media": media, "created_at": a_ts}
+    res = await db.chat_messages.insert_one(adoc)
+    upd = {"updated_at": a_ts}
+    if session.get("title", "New chat") == "New chat":
+        upd["title"] = body.message[:40]
+    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
+    org = await db.organizations.find_one({"_id": ObjectId(org_id)})
+    return {"id": str(res.inserted_id), "role": "assistant", "content": content, "kind": kind,
+            "media": media, "action": action, "credits": org.get("credits", 0) if org else 0,
+            "title": upd.get("title", session.get("title"))}
 
 
 # ----------------------------------------------------------------- document generator

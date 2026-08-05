@@ -61,6 +61,70 @@ async def stream_text(session_id: str, system: str, prompt: str,
             yield event.content
 
 
+# ---------------------------------------------------------------- intent routing (unified chat)
+import json as _json
+
+ACTIONS = {"chat", "image", "video", "voice", "document", "code", "webapp"}
+
+
+def extract_json(text: str) -> dict | None:
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return _json.loads(text[start:end + 1])
+        except Exception:
+            return None
+    return None
+
+
+def strip_fences(text: str) -> str:
+    """Remove a leading/trailing ```lang fenced block wrapper if present."""
+    t = text.strip()
+    if t.startswith("```"):
+        nl = t.find("\n")
+        if nl != -1:
+            t = t[nl + 1:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
+
+
+ROUTER_SYSTEM = (
+    "You are an intent router for a multimodal AI assistant that can chat, generate images, videos, "
+    "voiceovers, documents, code, and self-contained web apps/games/sites. "
+    "Given the user's latest message (and prior context), pick the SINGLE best action and reply with STRICT JSON ONLY, no prose. "
+    'Schema: {"action": one of ["chat","image","video","voice","document","code","webapp"], '
+    '"prompt": "a clear, self-contained instruction derived from the user message for that action; for chat, restate the user question", '
+    '"language": "programming language for code (e.g. python, javascript), else empty string", '
+    '"reply": "one short friendly sentence in the SAME LANGUAGE as the user to introduce the result (e.g. this is your image)"}. '
+    "Rules: image = wants a picture/photo/logo/art/illustration. video = wants a video/clip/animation/motion. "
+    "voice = wants speech/narration/voiceover/audio spoken from text. document = wants an article/report/essay/plan/story/long-form text. "
+    "code = wants a code snippet/function/script/algorithm in a language. "
+    "webapp = wants a website/landing page/web game/web app/UI/tool that runs in a browser. "
+    "chat = questions, explanations, conversation, or anything else. Detect the user's language for the reply field."
+)
+
+
+async def route_intent(message: str, history: str = "") -> dict:
+    try:
+        raw = await generate_text(session_id=f"route-{uuid.uuid4().hex}", system=ROUTER_SYSTEM,
+                                  prompt=message, history=history,
+                                  provider="gemini", model="gemini-3-flash-preview")
+        data = extract_json(raw) or {}
+    except Exception as e:
+        logger.error("Intent routing failed: %s", e)
+        data = {}
+    action = data.get("action")
+    if action not in ACTIONS:
+        action = "chat"
+    return {
+        "action": action,
+        "prompt": (data.get("prompt") or message).strip(),
+        "language": (data.get("language") or "").strip(),
+        "reply": (data.get("reply") or "").strip(),
+    }
+
+
 async def generate_image(prompt: str):
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"img-{uuid.uuid4().hex}", system_message="You are an AI image generator.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])

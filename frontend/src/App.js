@@ -9,7 +9,6 @@ import AuthCallback from "@/pages/AuthCallback";
 import DashboardLayout from "@/pages/DashboardLayout";
 import Overview from "@/pages/Overview";
 import Chat from "@/pages/Chat";
-import Create from "@/pages/Create";
 import Creations from "@/pages/Creations";
 import Agents from "@/pages/Agents";
 import Memory from "@/pages/Memory";
@@ -61,7 +60,6 @@ function AppRouter() {
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
         <Route index element={<Overview />} />
         <Route path="chat" element={<Chat />} />
-        <Route path="create" element={<Create />} />
         <Route path="creations" element={<Creations />} />
         <Route path="agents" element={<Agents />} />
         <Route path="memory" element={<Memory />} />
