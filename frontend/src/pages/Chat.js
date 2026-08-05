@@ -57,6 +57,7 @@ export default function Chat() {
           const line = p.replace(/^data: /, "").trim();
           if (!line) continue;
           const evt = JSON.parse(line);
+          if (evt.error) { toast.error(evt.error); setMessages((m) => m.slice(0, -1)); return; }
           if (evt.delta) setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: "assistant", content: c[c.length - 1].content + evt.delta }; return c; });
           if (evt.done) { refreshUsage(); loadSessions(); }
         }

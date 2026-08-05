@@ -389,7 +389,7 @@ async def upgrade(org_id: str, ctx: dict = Depends(require_permission("member:ma
     return {"plan": "pro", "credits": 10000}
 
 
-# ----------------------------------------------------------------- streaming chat (SSE)
+# ----------------------------------------------------------------- streaming chat (SSE, real token streaming)
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/stream")
 async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Depends(require_permission("file:write"))):
     db = get_db()
@@ -399,34 +399,33 @@ async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Dep
     remaining = await _spend(db, org_id, "chat")
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     context = "".join(f"{m['role']}: {m['content']}\n" for m in hist)
-    try:
-        reply = await gateway.generate_text(
-            session_id=sid,
-            system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
-            prompt=f"user: {body.message}", provider=body.provider, model=body.model, history=context)
-    except Exception as e:
-        await _refund(db, org_id, "chat")
-        raise HTTPException(status_code=502, detail=f"AI error: {e}")
-    ts = utcnow()
-    await db.chat_messages.insert_many([
-        {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message, "created_at": ts},
-        {"session_id": sid, "org_id": org_id, "role": "assistant", "content": reply, "created_at": ts},
-    ])
-    upd = {"updated_at": ts}
-    if session.get("title", "New chat") == "New chat":
-        upd["title"] = body.message[:40]
-    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
 
     async def event_stream():
-        buf = ""
-        for word in reply.split(" "):
-            buf += word + " "
-            yield f"data: {json.dumps({'delta': word + ' '})}\n\n"
-            await asyncio.sleep(0.02)
+        reply = ""
+        try:
+            async for delta in gateway.stream_text(
+                session_id=sid,
+                system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
+                prompt=f"user: {body.message}", provider=body.provider, model=body.model, history=context):
+                reply += delta
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        except Exception as e:
+            await _refund(db, org_id, "chat")
+            yield f"data: {json.dumps({'error': str(e)[:200]})}\n\n"
+            return
+        ts = utcnow()
+        await db.chat_messages.insert_many([
+            {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message, "created_at": ts},
+            {"session_id": sid, "org_id": org_id, "role": "assistant", "content": reply, "created_at": ts},
+        ])
+        upd = {"updated_at": ts}
+        if session.get("title", "New chat") == "New chat":
+            upd["title"] = body.message[:40]
+        await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
         yield f"data: {json.dumps({'done': True, 'credits': remaining, 'title': upd.get('title', session.get('title'))})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
 
 # ----------------------------------------------------------------- share / export
@@ -485,3 +484,21 @@ async def public_creation_file(token: str):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Storage error: {e}")
     return Response(content=data, media_type=c.get("content_type", ctype))
+
+
+@router.get("/public/gallery")
+async def public_gallery(kind: str = "all", limit: int = 60):
+    db = get_db()
+    q = {"share_token": {"$exists": True}, "status": {"$ne": "processing"}}
+    if kind != "all":
+        q["kind"] = kind
+    items = await db.creations.find(q).sort("created_at", -1).to_list(min(limit, 120))
+    out = []
+    for i in items:
+        d = {"kind": i["kind"], "title": i.get("title"), "prompt": i.get("prompt"),
+             "content": (i.get("content", "") or "")[:400], "token": i.get("share_token"),
+             "created_at": _iso(i.get("created_at"))}
+        if i.get("storage_path"):
+            d["url"] = f"/api/public/creations/{i['share_token']}/file"
+        out.append(d)
+    return out

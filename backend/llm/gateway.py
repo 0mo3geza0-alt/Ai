@@ -4,7 +4,7 @@ import time
 import base64
 import requests
 from urllib.parse import quote
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 from core.logging import logger
 
@@ -47,6 +47,18 @@ async def generate_text(session_id: str, system: str, prompt: str,
             last_err = e
             logger.error("LLM %s/%s failed, trying fallback: %s", prov, mod, e)
     raise RuntimeError(f"All models failed: {last_err}")
+
+
+async def stream_text(session_id: str, system: str, prompt: str,
+                      provider: str = None, model: str = None, history: str = ""):
+    """Async generator yielding text token deltas as they arrive from the model."""
+    provider = provider or DEFAULT_TEXT[0]
+    model = model or DEFAULT_TEXT[1]
+    full = (history + "\n" + prompt) if history else prompt
+    chat = _new_chat(session_id, system, provider, model)
+    async for event in chat.stream_message(UserMessage(text=full)):
+        if isinstance(event, TextDelta) and event.content:
+            yield event.content
 
 
 async def generate_image(prompt: str):

@@ -18,6 +18,8 @@ import Projects from "@/pages/Projects";
 import ProjectDetail from "@/pages/ProjectDetail";
 import Settings from "@/pages/Settings";
 import SharePage from "@/pages/SharePage";
+import Gallery from "@/pages/Gallery";
+import Backoffice from "@/pages/Backoffice";
 
 function Boot() {
   return <div className="min-h-screen flex items-center justify-center bg-[#05050A]"><span className="flex gap-2"><span className="dot" /><span className="dot" /><span className="dot" /></span></div>;
@@ -43,6 +45,8 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Foundation />} />
+      <Route path="/gallery" element={<Gallery />} />
+      <Route path="/backoffice" element={<Backoffice />} />
       <Route path="/share/:token" element={<SharePage />} />
       <Route path="/login" element={<Guest><Login /></Guest>} />
       <Route path="/register" element={<Guest><Register /></Guest>} />

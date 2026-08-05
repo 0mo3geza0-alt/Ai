@@ -43,6 +43,7 @@ export default function Foundation() {
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-2">
+            <Link to="/gallery" data-testid="nav-gallery-link" className="text-sm text-[#94A3B8] hover:text-white px-3 py-2 transition-colors">Gallery</Link>
             <Link to="/login"><Button data-testid="nav-login-btn" variant="outline" className="rounded-full bg-transparent border-[rgba(255,255,255,0.15)] text-white hover:bg-white/5 transition-colors">Log in</Button></Link>
             <Link to="/register"><Button data-testid="nav-register-btn" className="rounded-full ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity">Get started</Button></Link>
           </div>
