@@ -1,35 +1,62 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, PenLine, Image as ImageIcon, History as HistoryIcon, Settings as SettingsIcon, Crown, LogOut, Menu, X, Coins } from "lucide-react";
-import { toast } from "sonner";
-import { useApp } from "@/context/AppContext";
-import { Logo, LangSwitcher } from "@/components/shared";
-import { api } from "@/context/AppContext";
-import { Button } from "@/components/ui/button";
+import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check } from "lucide-react";
+import { useAuth, api } from "@/context/AuthContext";
+import { Logo } from "@/components/shared";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function DashboardLayout() {
-  const { t, user, logout, setUser } = useApp();
+  const { user, logout } = useAuth();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
+  const [orgs, setOrgs] = useState([]);
+  const [activeOrg, setActiveOrg] = useState(null);
+
+  const refreshOrgs = async () => {
+    const { data } = await api.get("/orgs");
+    setOrgs(data);
+    setActiveOrg((cur) => {
+      if (cur) { const found = data.find((o) => o.id === cur.id); if (found) return found; }
+      return data.find((o) => o.id === user?.default_org_id) || data[0] || null;
+    });
+    return data;
+  };
+  useEffect(() => { refreshOrgs(); }, []); // eslint-disable-line
 
   const items = [
-    { to: "/app", end: true, icon: LayoutDashboard, label: t.sidebar.dashboard, id: "dashboard" },
-    { to: "/app/chat", icon: MessageSquare, label: t.sidebar.chat, id: "chat" },
-    { to: "/app/text", icon: PenLine, label: t.sidebar.text, id: "text" },
-    { to: "/app/image", icon: ImageIcon, label: t.sidebar.image, id: "image" },
-    { to: "/app/history", icon: HistoryIcon, label: t.sidebar.history, id: "history" },
-    { to: "/app/settings", icon: SettingsIcon, label: t.sidebar.settings, id: "settings" },
+    { to: "/app", end: true, icon: LayoutDashboard, label: "Overview", id: "overview" },
+    { to: "/app/projects", icon: FolderGit2, label: "Projects", id: "projects" },
+    { to: "/app/organization", icon: Building2, label: "Organization", id: "organization" },
+    { to: "/app/api-keys", icon: KeyRound, label: "API Keys", id: "api-keys" },
+    { to: "/app/settings", icon: SettingsIcon, label: "Settings", id: "settings" },
   ];
 
   const doLogout = async () => { await logout(); nav("/"); };
-  const upgrade = async () => {
-    try { const { data } = await api.post("/billing/upgrade"); setUser(data); toast.success("Pro activated"); }
-    catch { toast.error(t.common.error); }
-  };
 
-  const SidebarInner = (
+  const Inner = (
     <div className="flex flex-col h-full">
-      <div className="p-5"><Logo /></div>
+      <div className="p-5"><Logo to="/app" /></div>
+
+      <div className="px-3 mb-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button data-testid="org-switcher" className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-sm hover:border-[rgba(255,255,255,0.2)] transition-colors">
+              <span className="flex items-center gap-2 min-w-0"><Building2 className="w-4 h-4 text-[#A855F7] shrink-0" /><span className="truncate">{activeOrg?.name || "…"}</span></span>
+              <ChevronsUpDown className="w-4 h-4 text-[#64748B] shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-56 bg-[#12121C] border border-[rgba(255,255,255,0.12)] text-white">
+            {orgs.map((o) => (
+              <DropdownMenuItem key={o.id} data-testid={`org-option-${o.id}`} onClick={() => setActiveOrg(o)}
+                className="flex items-center justify-between gap-2 cursor-pointer focus:bg-white/5">
+                <span className="truncate">{o.name}</span>
+                {activeOrg?.id === o.id && <Check className="w-4 h-4 text-emerald-400" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {items.map((it) => (
           <NavLink key={it.id} to={it.to} end={it.end} onClick={() => setOpen(false)} data-testid={`sidebar-${it.id}-link`}
@@ -38,21 +65,15 @@ export default function DashboardLayout() {
           </NavLink>
         ))}
       </nav>
-      <div className="p-3 space-y-3">
-        {user?.plan !== "pro" && (
-          <button data-testid="sidebar-upgrade-btn" onClick={upgrade}
-            className="w-full flex items-center gap-2 justify-center px-3 py-2.5 rounded-xl text-sm text-white ai-gradient-bg hover:opacity-90 transition-opacity glow-border">
-            <Crown className="w-4 h-4" /> {t.sidebar.upgrade}
-          </button>
-        )}
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-sm">
-          <Coins className="w-4 h-4 text-[#D946EF]" />
-          <span data-testid="sidebar-credits" className="text-white font-medium">{user?.credits}</span>
-          <span className="text-[#64748B]">{t.sidebar.credits}</span>
+
+      <div className="p-3 border-t border-[rgba(255,255,255,0.06)]">
+        <div className="px-3 py-2 text-sm">
+          <p className="text-white font-medium truncate">{user?.name}</p>
+          <p className="text-[#64748B] text-xs truncate">{user?.email}</p>
         </div>
-        <button data-testid="sidebar-logout-btn" onClick={doLogout}
+        <button data-testid="logout-btn" onClick={doLogout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-[#94A3B8] hover:text-white hover:bg-white/5 transition-colors">
-          <LogOut className="w-[18px] h-[18px]" /> {t.sidebar.logout}
+          <LogOut className="w-[18px] h-[18px]" /> Log out
         </button>
       </div>
     </div>
@@ -60,29 +81,23 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen text-[#F8FAFC] flex">
-      {/* desktop sidebar */}
-      <aside className="hidden lg:flex w-64 shrink-0 border-e border-[rgba(255,255,255,0.06)] bg-[#0C0C14] flex-col h-screen sticky top-0">
-        {SidebarInner}
-      </aside>
-
-      {/* mobile drawer */}
+      <aside className="hidden lg:flex w-64 shrink-0 border-e border-[rgba(255,255,255,0.06)] bg-[#0C0C14] flex-col h-screen sticky top-0">{Inner}</aside>
       {open && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <aside className="relative w-64 bg-[#0C0C14] border-e border-[rgba(255,255,255,0.08)] h-full">{SidebarInner}</aside>
+          <aside className="relative w-64 bg-[#0C0C14] border-e border-[rgba(255,255,255,0.08)] h-full">{Inner}</aside>
         </div>
       )}
-
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="lg:hidden glass border-b border-[rgba(255,255,255,0.06)] h-14 flex items-center justify-between px-4 sticky top-0 z-40">
           <button data-testid="mobile-menu-btn" onClick={() => setOpen(true)} className="text-white"><Menu className="w-6 h-6" /></button>
-          <Logo size="text-lg" />
-          <LangSwitcher />
+          <Logo size="text-lg" to="/app" />
+          <span className="w-6" />
         </header>
-        <div className="hidden lg:flex justify-end px-8 pt-6">
-          <LangSwitcher />
-        </div>
-        <main className="flex-1 min-w-0"><Outlet /></main>
+        <main className="flex-1 min-w-0">
+          {activeOrg ? <Outlet context={{ activeOrg, orgs, setActiveOrg, refreshOrgs, user }} /> :
+            <div className="p-8 text-[#64748B]">Loading workspace…</div>}
+        </main>
       </div>
     </div>
   );

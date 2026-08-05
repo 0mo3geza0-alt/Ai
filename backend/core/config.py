@@ -2,7 +2,7 @@ import os
 
 APP_NAME = "Autonomous AI Agent Platform"
 APP_VERSION = "0.1.0"
-PHASE = "Phase 1 — Foundation"
+PHASE = "Phase 3 — Workspace"
 
 
 class Settings:

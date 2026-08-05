@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Activity, Database, Cpu, CheckCircle2, Circle, GitBranch } from "lucide-react";
+import { Logo } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const PHASES = [
   { n: 1, label: "Foundation", done: true },
-  { n: 2, label: "Authentication" },
-  { n: 3, label: "Workspace" },
+  { n: 2, label: "Authentication", done: true },
+  { n: 3, label: "Workspace", done: true },
   { n: 4, label: "Tool Framework" },
   { n: 5, label: "Memory System" },
   { n: 6, label: "Planning Engine" },
@@ -36,7 +39,16 @@ export default function Foundation() {
 
   return (
     <div className="min-h-screen text-[#F8FAFC] px-5 py-16 relative z-10">
-      <div className="max-w-4xl mx-auto">
+      <header className="fixed top-0 inset-x-0 z-50 glass border-b border-[rgba(255,255,255,0.06)]">
+        <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
+          <Logo />
+          <div className="flex items-center gap-2">
+            <Link to="/login"><Button data-testid="nav-login-btn" variant="outline" className="rounded-full bg-transparent border-[rgba(255,255,255,0.15)] text-white hover:bg-white/5 transition-colors">Log in</Button></Link>
+            <Link to="/register"><Button data-testid="nav-register-btn" className="rounded-full ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity">Get started</Button></Link>
+          </div>
+        </div>
+      </header>
+      <div className="max-w-4xl mx-auto pt-16">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-[rgba(255,255,255,0.1)] text-xs text-[#94A3B8] mb-6">
             <GitBranch className="w-3.5 h-3.5" /> {health?.phase || "Phase 1 — Foundation"}
