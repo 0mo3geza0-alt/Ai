@@ -1,0 +1,124 @@
+{
+  "theme": "dark",
+  "direction": "rtl_ltr_hybrid",
+  "archetype": "Luxury Cyber (Premium Space & AI Vibe)",
+  "typography": {
+    "strategy": "Dual-Script Harmony",
+    "headings": {
+      "english": "Outfit",
+      "arabic": "Alexandria",
+      "scale": "fluid text-4xl to text-6xl for Hero; text-2xl to text-4xl for Dashboard",
+      "weight": "font-light to font-bold (Avoid generic regular)",
+      "line_height": "leading-tight for English, leading-snug (1.4) for Arabic",
+      "letter_spacing": "tracking-tight for English, tracking-normal (0) for Arabic. Arabic text MUST NOT use added letter-spacing."
+    },
+    "body": {
+      "english": "IBM Plex Sans",
+      "arabic": "Tajawal",
+      "scale": "text-base (16px min for Arabic readability, prefer 18px for main content)",
+      "line_height": "leading-relaxed (1.6 to 1.8 for Arabic)",
+      "letter_spacing": "tracking-normal (0) for Arabic"
+    },
+    "forbidden_fonts": [
+      "Inter",
+      "Roboto",
+      "Open Sans",
+      "Lato",
+      "Space Grotesk"
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#05050A",
+      "surface": "#0C0C14",
+      "surface_elevated": "#12121C"
+    },
+    "accents": {
+      "primary": "#4F46E5",
+      "secondary": "#0EA5E9",
+      "tertiary": "#D946EF",
+      "ai_gradient": "bg-gradient-to-r from-[#4F46E5] via-[#A855F7] to-[#D946EF]"
+    },
+    "text": {
+      "primary": "#F8FAFC",
+      "secondary": "#94A3B8",
+      "muted": "#64748B"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.08)",
+      "active": "rgba(255, 255, 255, 0.2)"
+    },
+    "forbidden_colors": [
+      "#7351B7",
+      "#1B93A4"
+    ]
+  },
+  "rtl_guidelines": [
+    "Set dir='rtl' or 'ltr' dynamically at the HTML document level based on the selected language.",
+    "Use logical CSS properties in Tailwind exclusively: ms-, me-, ps-, pe-, border-s, border-e.",
+    "Set text-align: start; DO NOT hardcode text-left or text-right to ensure bidirectional mirroring.",
+    "Arabic text MUST NOT have added letter-spacing; it breaks cursive character connections.",
+    "Increase base Arabic font size (min 16px, prefer 18px) and line-height (1.7) for optimal legibility."
+  ],
+  "visual_enhancers": {
+    "surfaces": "Glassmorphism for Sticky Headers (backdrop-blur-2xl bg-[#05050A]/60). True-gray flat surfaces for dashboard cards to reduce glare without heavy borders.",
+    "borders": "Use 'The Tracing Beam' (animated glow border) on active AI tool cards or Upgrade CTAs. Use subtle grid-borders (border-collapse style) for usage/history data.",
+    "shadows": "Deep ambient shadows (shadow-[0_8px_32px_rgba(79,70,229,0.15)]) to create depth without relying on flat layers.",
+    "textures": "Subtle noise/grain overlay on the landing page background to eliminate digital flatness."
+  },
+  "layouts": {
+    "landing_page": "Bento Grid (Tetris Mode) for Features. Asymmetric, wide gaps (gap-8 to gap-12). Hero section incorporates deep background and massive, fluid typography.",
+    "dashboard": "High Density Grid. Persistent Sidebar on the inline-start side. Strict structural hierarchy, tight gaps (gap-4 or gap-6). Cardless or 1px subtle bordered widget containers.",
+    "chat_interface": "Multi-turn layout mapped to logical start/end. Sidebar for historical sessions. Distinct user/AI conversation bubbles without harsh card edges."
+  },
+  "components_instructions": {
+    "sidebar": "Responsive dashboard sidebar utilizing logical properties (border-e instead of border-r). Must contain: Dashboard, Chat, Text Gen, Image Gen, History, Settings, Upgrade Pro CTA.",
+    "usage_dashboard": "Bento grid layout highlighting remaining credits (Free/Pro tiers) and usage history charts.",
+    "tools": "Text Generation and Image Generation interfaces must prioritize content view (zoom in). High-contrast empty states.",
+    "language_switcher": "Clear toggle (Arabic / English) in the header or sidebar to dynamically change the layout direction.",
+    "buttons": "Pill-shaped or sharp-edged. Apply interaction animations (e.g., slight scale down on active).",
+    "inputs": "Highly customized Shadcn inputs. Explicit active/focus states with an accented border glow."
+  },
+  "motion": {
+    "hover": "Hover state text/icon color must be a lighter hue than the active state. Use specific transitions (transition-colors, transition-transform), NEVER transition-all.",
+    "loading": "Use abstract glowing pulsing dots or skeleton screens rather than generic circular spinners to fit the AI aesthetic.",
+    "page": "Framer Motion staggered entrances for dashboard widgets and chat messages."
+  },
+  "3d_libraries": {
+    "selection": "TSParticles",
+    "use_case": "Floating neural dust or abstract meshes on the Landing Page Hero background to establish an immersive AI vibe without overpowering the text."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1654198340681-a2e0fc449f1b",
+        "description": "Dark background with pink and blue abstract swirl",
+        "category": "Hero Section Background / AI Vibes"
+      },
+      {
+        "url": "https://images.pexels.com/photos/14314636/pexels-photo-14314636.jpeg",
+        "description": "Futuristic abstract network with complex connections",
+        "category": "Landing Page Features Graphic / AI Vision tool placeholder"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1557264322-b44d383a2906",
+        "description": "Fluid abstract art in cyber colors",
+        "category": "Image Generation Mockup Output / Gallery"
+      }
+    ],
+    "image_constraints": "Max overlay opacity bg-black/50. Mobile image height max 80vh."
+  },
+  "testing": {
+    "accessibility": "Minimum 4.5:1 contrast ratio. All interactive and key informational elements MUST include a data-testid attribute formatted in kebab-case (e.g., login-submit-button, language-switcher-toggle)."
+  },
+  "universal_guidelines_for_main_agent": [
+    "Do not center align the app container. Text reading flow must remain natural and start-aligned (text-start).",
+    "Use pre-existing Shadcn js components from src/components/ui when applicable. The workspace uses .js files, avoid .tsx code.",
+    "Use 'sonner' for toast notifications.",
+    "Every interaction needs micro-animations (hover states, structural transitions).",
+    "DO NOT use transparent dropdown backgrounds. Always provide a solid or heavy glassmorphism background (with blur) to prevent text collision over moving content.",
+    "Use 2-3x more spacing (padding/margin) than feels comfortable to achieve a premium look.",
+    "Always rely on logical CSS classes (e.g., ms-, ps-) for cross-directional RTL/LTR compatibility.",
+    "No emojis as icons. Use Lucide React or Phosphor Icons."
+  ]
+}
