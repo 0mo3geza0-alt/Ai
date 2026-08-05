@@ -17,6 +17,7 @@ import ApiKeys from "@/pages/ApiKeys";
 import Projects from "@/pages/Projects";
 import ProjectDetail from "@/pages/ProjectDetail";
 import Settings from "@/pages/Settings";
+import SharePage from "@/pages/SharePage";
 
 function Boot() {
   return <div className="min-h-screen flex items-center justify-center bg-[#05050A]"><span className="flex gap-2"><span className="dot" /><span className="dot" /><span className="dot" /></span></div>;
@@ -42,6 +43,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Foundation />} />
+      <Route path="/share/:token" element={<SharePage />} />
       <Route path="/login" element={<Guest><Login /></Guest>} />
       <Route path="/register" element={<Guest><Register /></Guest>} />
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>

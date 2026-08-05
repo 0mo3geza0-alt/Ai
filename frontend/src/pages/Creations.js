@@ -1,17 +1,12 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { FileText, Code2, Image as ImageIcon, AudioLines, Clock } from "lucide-react";
+import { toast } from "sonner";
+import { FileText, Code2, Image as ImageIcon, AudioLines, Video, Music, Search, Clock, Share2, Download, Check } from "lucide-react";
 import { api } from "@/context/AuthContext";
 
-const ICONS = { document: FileText, code: Code2, image: ImageIcon, audio: AudioLines };
-const TABS = [{ id: "all", l: "All" }, { id: "document", l: "Documents" }, { id: "code", l: "Code" }, { id: "image", l: "Images" }, { id: "audio", l: "Audio" }];
-
-function MediaThumb({ url }) {
-  const [blob, setBlob] = useState(null);
-  useEffect(() => { (async () => { try { const res = await api.get(url.replace("/api", ""), { responseType: "blob" }); setBlob(URL.createObjectURL(res.data)); } catch { /* ignore */ } })(); }, [url]);
-  return blob;
-}
+const ICONS = { document: FileText, code: Code2, image: ImageIcon, audio: AudioLines, video: Video, music: Music, research: Search };
+const TABS = [{ id: "all", l: "All" }, { id: "document", l: "Docs" }, { id: "code", l: "Code" }, { id: "image", l: "Images" }, { id: "audio", l: "Voice" }, { id: "video", l: "Video" }, { id: "music", l: "Music" }, { id: "research", l: "Research" }];
 
 export default function Creations() {
   const { activeOrg } = useOutletContext();
@@ -20,17 +15,34 @@ export default function Creations() {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [blobs, setBlobs] = useState({});
+  const [shared, setShared] = useState({});
+
+  const load = () => { setLoading(true); api.get(`/orgs/${oid}/creations`).then(({ data }) => setItems(data)).finally(() => setLoading(false)); };
+  useEffect(() => { load(); }, [oid]); // eslint-disable-line
 
   useEffect(() => {
-    setLoading(true);
-    api.get(`/orgs/${oid}/creations`).then(({ data }) => setItems(data)).finally(() => setLoading(false));
-  }, [oid]);
-
-  useEffect(() => {
-    items.filter((i) => i.url && !blobs[i.id]).forEach(async (i) => {
+    items.filter((i) => i.url && i.status === "done" && !blobs[i.id]).forEach(async (i) => {
       try { const res = await api.get(i.url.replace("/api", ""), { responseType: "blob" }); setBlobs((b) => ({ ...b, [i.id]: URL.createObjectURL(res.data) })); } catch { /* ignore */ }
     });
   }, [items]); // eslint-disable-line
+
+  const share = async (id) => {
+    try {
+      const { data } = await api.post(`/orgs/${oid}/creations/${id}/share`);
+      const link = `${window.location.origin}${data.path}`;
+      await navigator.clipboard.writeText(link);
+      setShared((s) => ({ ...s, [id]: true })); setTimeout(() => setShared((s) => ({ ...s, [id]: false })), 2000);
+      toast.success("Public link copied");
+    } catch { toast.error("Could not create share link"); }
+  };
+
+  const exportDoc = async (id, fmt) => {
+    try {
+      const res = await api.get(`/orgs/${oid}/creations/${id}/export?format=${fmt}`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a"); a.href = url; a.download = `creation-${id}.${fmt}`; a.click(); URL.revokeObjectURL(url);
+    } catch { toast.error("Export failed"); }
+  };
 
   const filtered = items.filter((i) => filter === "all" || i.kind === filter);
 
@@ -49,14 +61,23 @@ export default function Creations() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map((c, i) => {
             const Icon = ICONS[c.kind] || FileText;
+            const isText = ["document", "code", "research"].includes(c.kind);
             return (
               <motion.div key={c.id} data-testid={`creation-${c.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: i * 0.03 }}
-                className="p-5 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]">
-                <div className="flex items-center gap-2 text-xs text-[#94A3B8] mb-3"><Icon className="w-4 h-4 text-[#A855F7]" /> <span className="capitalize">{c.kind}</span> · {new Date(c.created_at).toLocaleString()}</div>
+                className="p-5 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.06)] flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-xs text-[#94A3B8] min-w-0"><Icon className="w-4 h-4 text-[#A855F7] shrink-0" /> <span className="capitalize">{c.kind}</span> · {new Date(c.created_at).toLocaleDateString()}</div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isText && <button data-testid={`export-${c.id}`} onClick={() => exportDoc(c.id, "md")} className="p-1.5 text-[#64748B] hover:text-white transition-colors" title="Export .md"><Download className="w-4 h-4" /></button>}
+                    <button data-testid={`share-${c.id}`} onClick={() => share(c.id)} className="p-1.5 text-[#64748B] hover:text-white transition-colors" title="Share">{shared[c.id] ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}</button>
+                  </div>
+                </div>
                 <p className="text-sm text-white mb-3 line-clamp-1">{c.title || c.prompt}</p>
-                {c.kind === "image" && (blobs[c.id] ? <img src={blobs[c.id]} alt="" className="rounded-xl w-full h-auto max-h-64 object-cover" /> : <div className="h-40 rounded-xl bg-[#12121C] flex items-center justify-center"><span className="dot" /></div>)}
-                {c.kind === "audio" && (blobs[c.id] ? <audio src={blobs[c.id]} controls className="w-full" /> : <div className="h-12 rounded-xl bg-[#12121C]" />)}
-                {(c.kind === "document" || c.kind === "code") && <pre className="text-xs text-[#94A3B8] whitespace-pre-wrap line-clamp-6 font-mono">{c.content}</pre>}
+                {c.status === "processing" ? <div className="h-24 rounded-xl bg-[#12121C] flex items-center justify-center text-xs text-[#64748B]"><span className="dot" /> generating…</div> :
+                  c.kind === "image" ? (blobs[c.id] ? <img src={blobs[c.id]} alt="" className="rounded-xl w-full h-auto max-h-64 object-cover" /> : <div className="h-40 rounded-xl bg-[#12121C] flex items-center justify-center"><span className="dot" /></div>) :
+                  c.kind === "video" ? (blobs[c.id] ? <video src={blobs[c.id]} controls className="rounded-xl w-full max-h-64" /> : <div className="h-40 rounded-xl bg-[#12121C]" />) :
+                  (c.kind === "audio" || c.kind === "music") ? (blobs[c.id] ? <audio src={blobs[c.id]} controls className="w-full" /> : <div className="h-12 rounded-xl bg-[#12121C]" />) :
+                  <pre className="text-xs text-[#94A3B8] whitespace-pre-wrap line-clamp-6 font-mono">{c.content}</pre>}
               </motion.div>
             );
           })}

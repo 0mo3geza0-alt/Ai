@@ -1,11 +1,16 @@
 import os
 import uuid
+import time
 import base64
+import requests
+from urllib.parse import quote
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 from core.logging import logger
 
 EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
+INTEGRATION_PROXY_BASE = os.environ.get("INTEGRATION_PROXY_URL", "https://integrations.emergentagent.com").rstrip("/")
+FAL_BASE = f"{INTEGRATION_PROXY_BASE}/api/v1/fal"
 
 # Available models exposed to the frontend (Model Gateway)
 MODELS = {
@@ -59,3 +64,81 @@ async def generate_audio(text: str, voice: str = "alloy", model: str = "tts-1") 
         voice = "alloy"
     tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
     return await tts.generate_speech(text=text[:4096], model=model, voice=voice, response_format="mp3")
+
+
+# ---------------------------------------------------------------- fal.ai (Universal Key: queue inference only)
+VIDEO_ENDPOINT = "fal-ai/ltx-video"
+MUSIC_ENDPOINT = "fal-ai/stable-audio"
+
+
+def _fal_headers():
+    return {"Authorization": f"Bearer {EMERGENT_LLM_KEY}", "Content-Type": "application/json"}
+
+
+def _fal_run(endpoint_id: str, payload: dict, timeout: int = 240) -> dict:
+    """Blocking submit -> poll -> result via the Emergent integration proxy. Run in a thread."""
+    submit = requests.post(f"{FAL_BASE}/proxy", headers={**_fal_headers(), "X-Fal-Target-Url": f"https://queue.fal.run/{endpoint_id}"},
+                           json=payload, timeout=60)
+    if submit.status_code == 402:
+        raise PermissionError("insufficient_universal_credits")
+    submit.raise_for_status()
+    data = submit.json()
+    status_url, response_url = data["status_url"], data["response_url"]
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        st = requests.get(status_url, headers=_fal_headers(), timeout=30)
+        st.raise_for_status()
+        status = (st.json().get("status") or "").upper()
+        if status in {"COMPLETED", "OK"}:
+            res = requests.get(response_url, headers=_fal_headers(), timeout=60)
+            res.raise_for_status()
+            return res.json()
+        if status in {"FAILED", "CANCELLED", "CANCELED", "ERROR"}:
+            raise RuntimeError(f"fal generation {status}")
+        time.sleep(2)
+    raise TimeoutError("fal generation timed out")
+
+
+def _download(url: str) -> bytes:
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    return r.content
+
+
+def generate_video(prompt: str) -> tuple[bytes, str]:
+    result = _fal_run(VIDEO_ENDPOINT, {"prompt": prompt})
+    video = result.get("video") or {}
+    url = video.get("url")
+    if not url:
+        raise RuntimeError("No video returned")
+    return _download(url), video.get("content_type", "video/mp4")
+
+
+def generate_music(prompt: str, seconds: int = 30) -> tuple[bytes, str]:
+    result = _fal_run(MUSIC_ENDPOINT, {"prompt": prompt, "seconds_total": max(5, min(seconds, 60))})
+    audio = result.get("audio_file") or {}
+    url = audio.get("url")
+    if not url:
+        raise RuntimeError("No audio returned")
+    return _download(url), audio.get("content_type", "audio/mpeg")
+
+
+# ---------------------------------------------------------------- web research (DuckDuckGo, no key)
+def web_search(query: str, max_results: int = 6) -> list[dict]:
+    try:
+        r = requests.get("https://api.duckduckgo.com/", params={"q": query, "format": "json", "no_html": 1, "t": "nexus"}, timeout=20)
+        data = r.json()
+    except Exception as e:
+        logger.error("DDG search failed: %s", e)
+        return []
+    out = []
+    def walk(topics):
+        for t in topics:
+            if "Topics" in t:
+                walk(t["Topics"])
+            elif t.get("FirstURL") and t.get("Text"):
+                out.append({"title": t["Text"][:120], "url": t["FirstURL"], "snippet": t["Text"]})
+    walk(data.get("RelatedTopics", []))
+    if data.get("AbstractText"):
+        out.insert(0, {"title": data.get("Heading", query), "url": data.get("AbstractURL", ""), "snippet": data["AbstractText"]})
+    return out[:max_results]

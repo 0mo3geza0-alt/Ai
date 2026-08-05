@@ -33,12 +33,37 @@ export default function Chat() {
     if (!sid) { const { data } = await api.post(`/orgs/${oid}/chat/sessions`, {}); sid = data.id; setActive(sid); await loadSessions(); }
     setInput(""); setMessages((m) => [...m, { role: "user", content: text }]); setSending(true);
     try {
-      const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/send`, { message: text });
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
-      refreshUsage(); loadSessions();
+      const token = localStorage.getItem("token");
+      const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/orgs/${oid}/chat/sessions/${sid}/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ message: text }),
+      });
+      if (!resp.ok) {
+        if (resp.status === 402) throw new Error("Out of credits — upgrade the org plan.");
+        throw new Error("stream failed");
+      }
+      setMessages((m) => [...m, { role: "assistant", content: "" }]);
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop();
+        for (const p of parts) {
+          const line = p.replace(/^data: /, "").trim();
+          if (!line) continue;
+          const evt = JSON.parse(line);
+          if (evt.delta) setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: "assistant", content: c[c.length - 1].content + evt.delta }; return c; });
+          if (evt.done) { refreshUsage(); loadSessions(); }
+        }
+      }
     } catch (err) {
-      toast.error(err.response?.status === 402 ? "Out of credits — upgrade the org plan." : formatApiErrorDetail(err.response?.data?.detail));
-      setMessages((m) => m.slice(0, -1));
+      toast.error(err.message || "Something went wrong.");
+      setMessages((m) => (m[m.length - 1]?.role === "assistant" && m[m.length - 1].content === "") ? m.slice(0, -2) : m.slice(0, -1));
     } finally { setSending(false); }
   };
 
