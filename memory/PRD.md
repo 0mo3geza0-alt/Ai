@@ -1,39 +1,28 @@
-# NeuraForge — AI Platform (منصة ذكاء اصطناعي)
+# Autonomous AI Agent Platform — PRD
 
 ## Original Problem Statement
-Integrated web platform where users use AI tools (chat, text generation, image generation) from one place, with accounts and subscriptions. Bilingual Arabic RTL + English LTR. Stack: React + FastAPI + MongoDB.
+Build a production-grade Autonomous AI Agent Platform following a 15-phase roadmap (Phase 0–14). Each phase must be independently runnable and tested before the next. Full roadmap: `/app/memory/ROADMAP.md`.
 
-## User Choices
-- All 3 AI tools in v1 (chat, text, image)
-- Models: best mix -> gpt-5.6-terra (chat/text), gemini-3.1-flash-image-preview / Nano Banana (images) via EMERGENT_LLM_KEY
-- Auth: JWT email/password
-- Payments: none now (Pro upgrade is a mock endpoint)
-- Bilingual: Arabic RTL + English LTR with switcher (Arabic default)
+## Decisions
+- New app **replacing** the previous NeuraForge app.
+- Stack: **FastAPI + MongoDB + React** (Postgres/Redis/K8s delivered as self-host artifacts in `/app/infra`, not run in preview).
+- LLM via Emergent Universal Key.
 
 ## Architecture
-- Backend `/app/backend/server.py`: FastAPI, all routes under /api. Auth via JWT (httpOnly cookies + Bearer token fallback). MongoDB collections: users, chat_sessions, messages, history.
-- Frontend `/app/frontend/src`: React + Tailwind + shadcn. AppContext = auth + i18n state. Bearer token stored in localStorage (works inside iframe where cookies blocked).
-- AI via emergentintegrations LlmChat (EMERGENT_LLM_KEY).
+- `backend/core/`: config, logging, errors, db, base_models (PyObjectId/BaseDocument).
+- `backend/server.py`: FastAPI, `/api/*` routes.
+- `frontend/src/pages/Foundation.js`: boot/status screen + roadmap progress.
+- `infra/`: Docker, docker-compose (artifacts).
 
-## Credits
-chat=1, text=1, image=5. Free=100, Pro=10000.
+## Implemented
+### Phase 1 — Foundation (2026-08-05) ✅ verified
+- Core config/logging/errors/db/base-model modules.
+- `GET /api/health` (pings Mongo), `GET /api/version`, `GET /api/`.
+- MongoDB connection + startup index creation (`system_meta`).
+- React foundation boot screen: live API/DB/version status + 14-phase roadmap tracker.
+- Infra artifacts: Dockerfile.backend, Dockerfile.frontend, docker-compose.yml.
+- Verified: health returns `status=ok, database=connected`; frontend renders status + progress.
 
-## Implemented (2026-08-05)
-- JWT auth: register/login/logout/me/refresh; admin seeding.
-- Landing page (hero + features bento + pricing), Arabic RTL default.
-- Dashboard with sidebar nav, stats, quick actions.
-- AI Chat with multi-session saved conversations.
-- Text Studio (article/rewrite/summarize).
-- Image Studio (text-to-image, base64 data-url).
-- History (text + image ops) with filters + delete.
-- Settings (profile, password, upgrade to Pro).
-- Language switcher AR/EN with dir toggle.
-- Fixed: 401 on authenticated AI calls in iframe -> Bearer token auth. Verified by testing agent (100% backend + frontend).
-
-## Backlog / Remaining
-- P1: Stripe real payments for Pro subscription
-- P1: Object storage for generated images (currently base64 data-url in Mongo/history)
-- P2: Streaming chat responses (SSE)
-- P2: Password reset (forgot-password flow UI)
-- P2: Image editing with reference image
-- P2: Token expiry auto-refresh on 401
+## Remaining (phase by phase — see ROADMAP.md)
+- P0 next: **Phase 2 — Authentication** (JWT + OAuth + RBAC, orgs/teams, sessions, API keys)
+- Then: Phase 3 Workspace → 4 Tools → 5 Memory → 6 Planning → 7 Multi-Agent → 8 Browser → 9 LLM Gateway → 10 Frontend → 11 Infra → 12 Security → 13 Testing → 14 Production.
