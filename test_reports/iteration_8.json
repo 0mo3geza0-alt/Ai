@@ -1,0 +1,35 @@
+{
+  "summary": "Verified Stripe subscription billing (backend + full E2E incl. real test-mode payment) and Download-to-device buttons across Creations page, Create studio, and public /share page. All targeted features PASS. Backend: pytest 5/5 pass. Frontend E2E: registered a fresh user (free org, 200 credits), navigated to /app/billing, verified 3 plan cards + monthly/yearly toggle ($19/mo vs $180/yr for Pro), clicked plan-subscribe-pro → Stripe Checkout, paid with 4242 4242 4242 4242, redirected to /payment/success which flipped to 'Payment successful' in ~2 s (status-poll fallback worked), and org upgraded to Pro with 10,000 credits (sidebar badge shows 'Pro' + 10000, plan-current-pro visible on Billing). Downloads: Creations page shows download-<id> next to share-<id> on media items and clicking does not raise an error toast; public /share/{token} for a video creation shows the 'Download to your device' button (data-testid share-download-btn) with a valid blob href.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_billing.py",
+    "/app/test_reports/pytest/billing_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "billing/router.py create_checkout: managed_payments fallback → automatic_tax path leaves the Stripe form requiring a full billing address (line1, city, postal, state, country). The UI just says 'Taxes handled at checkout.' — consider a hint that users may be asked for a billing address, or set customer_creation='always' / prefill customer_email from ctx['user']['email'] so Stripe's email field is not blank on load (removes a required-field friction and lowers checkout abandonment).",
+    "billing/router.py get_status: performs a Stripe API call on every GET while status != 'paid'. For a slow polling client this can hammer Stripe; consider rate-limiting via a short last_polled_at cooldown (e.g., 2s) on the payment_transactions doc.",
+    "billing/router.py _apply_plan: only sets plan+credits — does not persist the stripe_customer_id (only stripe_subscription_id is set on the transaction). For future cancel/portal flows the org will also need customer_id; store it now.",
+    "billing/router.py stripe_webhook: no idempotency guard on repeat delivery (find_one_and_update with $ne:'paid' does dedupe upgrades, but subscription-updated / invoice.paid events aren't handled — plan renewals & downgrades won't reflect in the org).",
+    "billing/setup_stripe.py: setup_catalog runs on startup but does not enforce metadata.managed_by='emergent' when reusing a matched product — safe today, mention only.",
+    "creations UI (Creations.js downloadCreation): swallows all fetch errors with a single 'Download failed' toast; consider surfacing status codes or logging to help users diagnose (e.g., expired signed url)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_billing.py (new — 5 tests: plans catalog, checkout session creation, status pending, unknown lookup rejected, 404 on unknown session)"
+  ],
+  "success_rate": {"backend": "100% (5/5 pytest)", "frontend": "100% for the requested billing E2E + download button checks"},
+  "test_credentials": "Admin: admin@aiplatform.com / admin12345. Ephemeral non-admin created: TEST_bill2_1785959450@t.com / test1234 (now on Pro plan, 10000 credits, Bill Tester's Org). Stripe test card 4242 4242 4242 4242, exp 12/34, cvc 123, billing addr 1 Test St, New York NY 10001, US.",
+  "seed_data_creation": "One new user TEST_bill2_1785959450@t.com upgraded to Pro via a real Stripe test-mode subscription (session_id cs_test_a1yH80T0NPZXaxNEJNEwMXfnYQfs...). A share token was generated for admin's existing video creation (path /share/6595ebc0d92e4954b946293e02fec85b) — safe to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Billing pytest suite: /app/backend/tests/test_billing.py (run with `REACT_APP_BACKEND_URL=<public> pytest ... -o addopts=''`). The Stripe checkout the app currently creates falls back to automatic_tax + billing_address_collection='required' (managed_payments seems ineligible for this sandbox), so any Playwright script MUST fill: contact email (input placeholder 'email@example.com'), card, cardholder name, country=US, address line 1, city, state (auto), postal code — then click 'Pay and subscribe' by role/text (button[type=submit] alone does not always trigger). The webhook secret isn't verified in this sandbox — the /billing/status polling fallback flipped the org to Pro within ~2 s of Stripe redirecting to /payment/success. Download buttons verified: creations page download-<id>, share page share-download-btn, and Create.js has image-download-link / video-download-link / music-download-link data-testids in the JSX (only rendered post-generation; not driven end-to-end because AI gateways cost money and were pre-verified).",
+  "rca of the issue": "No new bugs found. Note for future debugging: in earlier Playwright attempts, `page.wait_for_url('**/payment/success**', timeout=90000)` timed out even though the UI was ready to submit — root cause was that clicking the Stripe form's submit via `button[type=submit]` did not fire; using `page.get_by_role('button', name='Pay and subscribe').click()` did. This is a test-script quirk, not an app bug."
+}

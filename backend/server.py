@@ -21,6 +21,7 @@ from admin_api import router as admin_router
 from memory.router import router as memory_router
 from agents.router import router as agents_router
 from security.router import router as security_router
+from billing.router import router as billing_router
 from security.middleware import SecurityMiddleware
 from memory import embeddings as _embeddings
 from workspace.storage import init_storage
@@ -55,6 +56,7 @@ app.include_router(admin_router)
 app.include_router(memory_router)
 app.include_router(agents_router)
 app.include_router(security_router)
+app.include_router(billing_router)
 
 app.add_middleware(SecurityMiddleware)
 
@@ -142,6 +144,11 @@ async def on_startup():
         logger.error("Storage init failed (uploads may not work): %s", e)
     import asyncio as _asyncio
     _asyncio.create_task(_asyncio.to_thread(_embeddings.warmup))
+    try:
+        from billing.setup_stripe import setup_catalog
+        _asyncio.create_task(_asyncio.to_thread(setup_catalog))
+    except Exception as e:
+        logger.error("Stripe setup skipped: %s", e)
     logger.info("%s %s (%s) started", settings.app_name, settings.app_version, settings.phase)
 
 

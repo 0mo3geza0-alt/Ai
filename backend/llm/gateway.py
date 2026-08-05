@@ -79,7 +79,8 @@ async def generate_audio(text: str, voice: str = "alloy", model: str = "tts-1") 
 
 
 # ---------------------------------------------------------------- fal.ai (Universal Key: queue inference only)
-VIDEO_ENDPOINT = "fal-ai/ltx-video"
+# High-quality text-to-video with built-in prompt optimizer for strong prompt adherence.
+VIDEO_ENDPOINT = "fal-ai/minimax/hailuo-02/standard/text-to-video"
 MUSIC_ENDPOINT = "fal-ai/stable-audio"
 
 
@@ -117,8 +118,10 @@ def _download(url: str) -> bytes:
     return r.content
 
 
-def generate_video(prompt: str) -> tuple[bytes, str]:
-    result = _fal_run(VIDEO_ENDPOINT, {"prompt": prompt})
+def generate_video(prompt: str, duration: str = "6") -> tuple[bytes, str]:
+    result = _fal_run(VIDEO_ENDPOINT,
+                      {"prompt": prompt, "prompt_optimizer": True, "duration": duration},
+                      timeout=600)
     video = result.get("video") or {}
     url = video.get("url")
     if not url:

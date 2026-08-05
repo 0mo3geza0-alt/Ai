@@ -49,6 +49,17 @@ export default function Creations() {
     } catch { toast.error("Export failed"); }
   };
 
+  const EXT = { image: "png", video: "mp4", audio: "mp3", music: "wav" };
+  const downloadCreation = async (c) => {
+    try {
+      const res = await api.get(c.url.replace("/api", ""), { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const name = `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "nexus"}.${EXT[c.kind] || "bin"}`;
+      const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      toast.success("Downloaded to your device");
+    } catch { toast.error("Download failed"); }
+  };
+
   const filtered = items.filter((i) => filter === "all" || i.kind === filter);
 
   return (
@@ -74,6 +85,7 @@ export default function Creations() {
                   <div className="flex items-center gap-2 text-xs text-[#94A3B8] min-w-0"><Icon className="w-4 h-4 text-[#A855F7] shrink-0" /> <span className="capitalize">{c.kind}</span> · {new Date(c.created_at).toLocaleDateString()}</div>
                   <div className="flex items-center gap-1 shrink-0">
                     {isText && <button data-testid={`export-${c.id}`} onClick={() => exportDoc(c.id, "md")} className="p-1.5 text-[#64748B] hover:text-white transition-colors" title="Export .md"><Download className="w-4 h-4" /></button>}
+                    {!isText && c.status === "done" && c.url && <button data-testid={`download-${c.id}`} onClick={() => downloadCreation(c)} className="p-1.5 text-[#64748B] hover:text-white transition-colors" title="Download to device"><Download className="w-4 h-4" /></button>}
                     <button data-testid={`share-${c.id}`} onClick={() => share(c.id)} className="p-1.5 text-[#64748B] hover:text-white transition-colors" title="Share">{shared[c.id] ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}</button>
                   </div>
                 </div>

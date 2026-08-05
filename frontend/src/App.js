@@ -23,6 +23,9 @@ import Settings from "@/pages/Settings";
 import SharePage from "@/pages/SharePage";
 import Gallery from "@/pages/Gallery";
 import Backoffice from "@/pages/Backoffice";
+import Billing from "@/pages/Billing";
+import PaymentSuccess from "@/pages/PaymentSuccess";
+import PaymentCancel from "@/pages/PaymentCancel";
 
 function Boot() {
   return <div className="min-h-screen flex items-center justify-center bg-[#05050A]"><span className="flex gap-2"><span className="dot" /><span className="dot" /><span className="dot" /></span></div>;
@@ -51,6 +54,8 @@ function AppRouter() {
       <Route path="/gallery" element={<Gallery />} />
       <Route path="/backoffice" element={<Backoffice />} />
       <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
+      <Route path="/payment/cancel" element={<Protected><PaymentCancel /></Protected>} />
       <Route path="/login" element={<Guest><Login /></Guest>} />
       <Route path="/register" element={<Guest><Register /></Guest>} />
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
@@ -67,6 +72,7 @@ function AppRouter() {
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:pid" element={<ProjectDetail />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="billing" element={<Billing />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

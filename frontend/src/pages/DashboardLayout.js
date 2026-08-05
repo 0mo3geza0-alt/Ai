@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert, CreditCard } from "lucide-react";
 import { useAuth, api } from "@/context/AuthContext";
 import { Logo } from "@/components/shared";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -40,6 +40,7 @@ export default function DashboardLayout() {
     { to: "/app/projects", icon: FolderGit2, label: "Projects", id: "projects" },
     { to: "/app/organization", icon: Building2, label: "Organization", id: "organization" },
     { to: "/app/api-keys", icon: KeyRound, label: "API Keys", id: "api-keys" },
+    { to: "/app/billing", icon: CreditCard, label: "Billing", id: "billing" },
     { to: "/app/settings", icon: SettingsIcon, label: "Settings", id: "settings" },
   ];
   if (user?.global_role === "admin") {
@@ -83,12 +84,13 @@ export default function DashboardLayout() {
       </nav>
 
       <div className="p-3 border-t border-[rgba(255,255,255,0.06)]">
-        <div className="flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-sm">
+        <NavLink to="/app/billing" onClick={() => setOpen(false)} data-testid="sidebar-credits-badge"
+          className="flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-sm hover:border-[#A855F7] transition-colors">
           <Coins className="w-4 h-4 text-[#D946EF]" />
           <span data-testid="sidebar-credits" className="text-white font-medium">{usage?.credits ?? "…"}</span>
           <span className="text-[#64748B]">credits</span>
           <span className="ms-auto text-xs text-[#64748B] capitalize">{usage?.plan}</span>
-        </div>
+        </NavLink>
         <div className="px-3 py-2 text-sm">
           <p className="text-white font-medium truncate">{user?.name}</p>
           <p className="text-[#64748B] text-xs truncate">{user?.email}</p>

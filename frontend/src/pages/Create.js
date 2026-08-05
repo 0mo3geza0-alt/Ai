@@ -135,7 +135,7 @@ export default function Create() {
           <Button data-testid="image-generate-btn" onClick={genImg} disabled={imgLoad || !imgPrompt.trim()} className={`${btnCls} mt-4`}>{imgLoad ? <Dots /> : <><Sparkles className="w-4 h-4 me-2" /> Generate image</>}</Button>
           {imgLoad ? <div className="mt-6 flex justify-center"><Dots /></div> : (
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {imgs.map((im) => { loadImg(im); return (<motion.div key={im.id} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="rounded-2xl overflow-hidden bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]">{blobUrls[im.id] ? <img data-testid="generated-image" src={blobUrls[im.id]} alt="" className="w-full h-auto" /> : <div className="aspect-square flex items-center justify-center"><Dots /></div>}</motion.div>); })}
+              {imgs.map((im) => { loadImg(im); return (<motion.div key={im.id} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="rounded-2xl overflow-hidden bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]">{blobUrls[im.id] ? <><img data-testid="generated-image" src={blobUrls[im.id]} alt="" className="w-full h-auto" /><div className="p-3"><a href={blobUrls[im.id]} download="nexus-image.png" data-testid="image-download-link" className="inline-flex items-center gap-2 text-sm text-[#A855F7] hover:underline"><Download className="w-4 h-4" /> Download</a></div></> : <div className="aspect-square flex items-center justify-center"><Dots /></div>}</motion.div>); })}
             </div>
           )}
         </TabsContent>
@@ -152,8 +152,8 @@ export default function Create() {
           <Chips items={TEMPLATES.video} onPick={setVidPrompt} />
           <Textarea data-testid="video-prompt-input" value={vidPrompt} onChange={(e) => setVidPrompt(e.target.value)} rows={4} placeholder="Describe the video scene..." className={inputCls} />
           <Button data-testid="video-generate-btn" onClick={genVid} disabled={vidLoad || !vidPrompt.trim()} className={`${btnCls} mt-4`}>{vidLoad ? <Dots /> : <><Video className="w-4 h-4 me-2" /> Generate video</>}</Button>
-          {vidLoad && <p className="mt-4 text-sm text-[#64748B] flex items-center gap-2"><Dots /> Rendering video — this can take 1-2 minutes…</p>}
-          {vidUrl && <div className="mt-6 rounded-2xl overflow-hidden bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]"><video data-testid="generated-video" src={vidUrl} controls className="w-full" /></div>}
+          {vidLoad && <p className="mt-4 text-sm text-[#64748B] flex items-center gap-2"><Dots /> Rendering high-quality video — this can take 1-3 minutes…</p>}
+          {vidUrl && <div className="mt-6 rounded-2xl overflow-hidden bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]"><video data-testid="generated-video" src={vidUrl} controls className="w-full" /><div className="p-3"><a href={vidUrl} download="nexus-video.mp4" data-testid="video-download-link" className="inline-flex items-center gap-2 text-sm text-[#A855F7] hover:underline"><Download className="w-4 h-4" /> Download video</a></div></div>}
         </TabsContent>
 
         <TabsContent value="music">
@@ -161,7 +161,7 @@ export default function Create() {
           <Textarea data-testid="music-prompt-input" value={musPrompt} onChange={(e) => setMusPrompt(e.target.value)} rows={4} placeholder="Describe the music / mood..." className={inputCls} />
           <Button data-testid="music-generate-btn" onClick={genMus} disabled={musLoad || !musPrompt.trim()} className={`${btnCls} mt-4`}>{musLoad ? <Dots /> : <><Music className="w-4 h-4 me-2" /> Generate music</>}</Button>
           {musLoad && <p className="mt-4 text-sm text-[#64748B] flex items-center gap-2"><Dots /> Composing — this can take 1-2 minutes…</p>}
-          {musUrl && <div className="mt-6 p-5 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]"><audio data-testid="generated-music" src={musUrl} controls className="w-full" /></div>}
+          {musUrl && <div className="mt-6 p-5 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]"><audio data-testid="generated-music" src={musUrl} controls className="w-full" /><a href={musUrl} download="nexus-music.wav" data-testid="music-download-link" className="inline-flex items-center gap-2 mt-3 text-sm text-[#A855F7] hover:underline"><Download className="w-4 h-4" /> Download</a></div>}
         </TabsContent>
 
         <TabsContent value="research">

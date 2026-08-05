@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
+import { Download } from "lucide-react";
 import { Logo } from "@/components/shared";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const EXT = { image: "png", video: "mp4", audio: "mp3", music: "wav" };
 
 export default function SharePage() {
   const { token } = useParams();
@@ -18,6 +20,8 @@ export default function SharePage() {
     }).catch(() => setErr(true));
   }, [token]);
 
+  const dlName = c ? `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "nexus"}.${EXT[c.kind] || "bin"}` : "nexus";
+
   return (
     <div className="min-h-screen text-[#F8FAFC] relative z-10">
       <header className="glass border-b border-[rgba(255,255,255,0.06)]"><div className="max-w-3xl mx-auto px-5 h-16 flex items-center"><Logo /></div></header>
@@ -29,6 +33,12 @@ export default function SharePage() {
             {c.kind === "image" && media && <img src={media} alt="" className="rounded-2xl w-full mb-6" />}
             {c.kind === "video" && media && <video src={media} controls className="rounded-2xl w-full mb-6" />}
             {(c.kind === "audio" || c.kind === "music") && media && <audio src={media} controls className="w-full mb-6" />}
+            {media && ["image", "video", "audio", "music"].includes(c.kind) && (
+              <a href={media} download={dlName} data-testid="share-download-btn"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full ai-gradient-bg text-white text-sm font-medium hover:opacity-90 transition-opacity mb-6">
+                <Download className="w-4 h-4" /> Download to your device
+              </a>
+            )}
             {c.content && <pre className="text-sm text-[#F8FAFC] whitespace-pre-wrap leading-relaxed font-mono p-6 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.06)]">{c.content}</pre>}
           </div>
         )}
