@@ -5,7 +5,7 @@ import pytest
 import requests
 from datetime import datetime
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://autonomous-nexus-14.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://project-sync-145.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@aiplatform.com"
