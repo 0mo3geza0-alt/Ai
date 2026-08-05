@@ -70,9 +70,10 @@ function Panel({ me, onLogout }) {
 
   const setRole = async (id, role) => { try { await api.patch(`/admin/users/${id}/role`, { global_role: role }); toast.success("Role updated"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
   const delUser = async (id) => { if (!window.confirm("Delete this user permanently?")) return; try { await api.delete(`/admin/users/${id}`); toast.success("User deleted"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
-  const addCredits = async (id, amt) => { try { const { data } = await api.patch(`/admin/organizations/${id}`, { add_credits: amt }); toast.success(`Credits: ${data.credits}`); load(); } catch { toast.error("Failed"); } };
-  const setPlan = async (id, plan) => { try { await api.patch(`/admin/organizations/${id}`, { plan }); toast.success("Plan updated"); load(); } catch { toast.error("Failed"); } };
-  const setCredits = async (id) => { const v = window.prompt("Set credits to:"); if (v == null) return; try { const { data } = await api.patch(`/admin/organizations/${id}`, { credits: parseInt(v, 10) || 0 }); toast.success(`Credits: ${data.credits}`); load(); } catch { toast.error("Failed"); } };
+  const addCredits = async (id, amt) => { try { const { data } = await api.patch(`/admin/organizations/${id}`, { add_credits: amt }); toast.success(`Credits: ${data.credits}`); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
+  const setPlan = async (id, plan) => { try { await api.patch(`/admin/organizations/${id}`, { plan }); toast.success("Plan updated"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
+  const setCredits = async (id) => { const v = window.prompt("Set credits to:"); if (v == null) return; try { const { data } = await api.patch(`/admin/organizations/${id}`, { credits: parseInt(v, 10) || 0 }); toast.success(`Credits: ${data.credits}`); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
+  const switchTab = (id) => { setQ(""); setTab(id); };
 
   const fUsers = users.filter((u) => !q || (u.email + (u.name || "")).toLowerCase().includes(q.toLowerCase()));
   const fOrgs = orgs.filter((o) => !q || (o.name + (o.owner_email || "")).toLowerCase().includes(q.toLowerCase()));
@@ -94,7 +95,7 @@ function Panel({ me, onLogout }) {
       <div className="max-w-6xl mx-auto px-5 py-8">
         <div className="flex gap-2 mb-8">
           {[["overview", "Overview"], ["users", "Users"], ["orgs", "Organizations"]].map(([id, l]) => (
-            <button key={id} data-testid={`admin-tab-${id}`} onClick={() => setTab(id)} className={`px-4 py-2 rounded-full text-sm border transition-colors ${tab === id ? "ai-gradient-bg text-white border-transparent" : "bg-transparent text-[#94A3B8] border-[rgba(255,255,255,0.12)] hover:text-white"}`}>{l}</button>
+            <button key={id} data-testid={`admin-tab-${id}`} onClick={() => switchTab(id)} className={`px-4 py-2 rounded-full text-sm border transition-colors ${tab === id ? "ai-gradient-bg text-white border-transparent" : "bg-transparent text-[#94A3B8] border-[rgba(255,255,255,0.12)] hover:text-white"}`}>{l}</button>
           ))}
         </div>
 
