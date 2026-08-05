@@ -18,6 +18,11 @@ from auth.security import hash_password, verify_password
 from workspace.router import router as workspace_router
 from studio.router import router as studio_router
 from admin_api import router as admin_router
+from memory.router import router as memory_router
+from agents.router import router as agents_router
+from security.router import router as security_router
+from security.middleware import SecurityMiddleware
+from memory import embeddings as _embeddings
 from workspace.storage import init_storage
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
@@ -47,6 +52,11 @@ app.include_router(auth_router)
 app.include_router(workspace_router)
 app.include_router(studio_router)
 app.include_router(admin_router)
+app.include_router(memory_router)
+app.include_router(agents_router)
+app.include_router(security_router)
+
+app.add_middleware(SecurityMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,6 +79,12 @@ async def _ensure_indexes():
     await db.sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.api_keys.create_index("prefix", unique=True)
     await db.wsfiles.create_index([("project_id", 1), ("file_key", 1), ("version", -1)])
+    await db.memories.create_index("org_id")
+    await db.memories.create_index([("org_id", 1), ("agent_id", 1)])
+    await db.agents.create_index([("org_id", 1), ("created_at", -1)])
+    await db.agent_runs.create_index([("org_id", 1), ("agent_id", 1), ("created_at", -1)])
+    await db.audit_logs.create_index([("org_id", 1), ("created_at", -1)])
+    await db.audit_logs.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
 
 
 async def _seed_admin():
@@ -124,6 +140,8 @@ async def on_startup():
         init_storage()
     except Exception as e:
         logger.error("Storage init failed (uploads may not work): %s", e)
+    import asyncio as _asyncio
+    _asyncio.create_task(_asyncio.to_thread(_embeddings.warmup))
     logger.info("%s %s (%s) started", settings.app_name, settings.app_version, settings.phase)
 
 
