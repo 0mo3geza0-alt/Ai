@@ -90,3 +90,17 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
   - Env: `STRIPE_SECRET_KEY/PUBLISHABLE_KEY/ACCOUNT_ID/WEBHOOK_SECRET/MODE` in backend/.env. Test card 4242 4242 4242 4242.
   - **Billing model**: platform OWNER pays Emergent (Universal Key); end-users pay the owner via Stripe. On paid, org `plan`+`credits` upgrade. E2E verified: fresh user free→Pro (10k credits) via real test-mode payment.
 - Pytest: `/app/backend/tests/test_billing.py` (5/5).
+
+## Phase 12 — Full Admin Panel (2026-06 update) ✅ verified (backend 13/13 pytest, frontend 100%)
+- **Account suspension** (full): `auth/deps.py get_current_user` + `auth/router.py` login/oauth reject `suspended` users with 403; suspending clears the user's `sessions` so existing tokens die. `serialize_user` exposes `suspended`.
+- **Admin endpoints** (`admin_api.py`, global-admin only):
+  - `PATCH /api/admin/users/{id}/suspend {suspended}` (self-suspend blocked, sessions cleared).
+  - `POST /api/admin/credits/grant-all {add_credits}` — bulk add/deduct credits to every org (floor 0).
+  - `PATCH /api/admin/organizations/{id}` — set/add/deduct credits (floored) + plan free/pro/business.
+  - `/users` now returns `suspended`.
+- **Admin UI** (`Admin.js`, rebuilt, tabbed): Overview stats (incl. video/music), Users (search + role Select + Suspend/Reactivate + 2-step Delete), Organizations (grant-to-all + search + plan Select + credit Add/Deduct/Set with live credit pill). Non-admin sees `admin-denied`.
+- Pytest: `/app/backend/tests/test_admin_panel.py` (13/13).
+- Note: deleting a user does not cascade-delete their auto-created org (informational).
+
+## Ownership & billing model (clarified to user, 2026-06)
+- Owner owns 100% of the code/IP. Owner pays Emergent via Universal Key for all real generations (image/video/voice cost real money — in-app "credits" are just an owner-controlled meter). End-users pay the owner via Stripe.
