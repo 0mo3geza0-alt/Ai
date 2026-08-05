@@ -22,6 +22,8 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(rec["user_id"])})
         if not user:
             raise HTTPException(status_code=401, detail="API key owner not found")
+        if user.get("suspended"):
+            raise HTTPException(status_code=403, detail="Account suspended. Please contact support.")
         user["id"] = str(user["_id"])
         user["_api_key"] = {"scopes": rec.get("scopes", []), "org_id": rec["org_id"]}
         return user
@@ -40,6 +42,8 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("suspended"):
+            raise HTTPException(status_code=403, detail="Account suspended. Please contact support.")
         user["id"] = str(user["_id"])
         return user
     except HTTPException:

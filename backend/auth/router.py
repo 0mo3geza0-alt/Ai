@@ -73,6 +73,8 @@ async def login(body: LoginBody, response: Response):
     user = await db.users.find_one({"email": body.email.lower()})
     if not user or not user.get("password_hash") or not sec.verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("suspended"):
+        raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact support.")
     tokens = await _issue_tokens(db, user)
     _set_cookies(response, tokens)
     return {"user": serialize_user(user), "token": tokens["access"], "refresh_token": tokens["refresh"]}
@@ -84,6 +86,8 @@ async def oauth_emergent(body: OAuthBody, response: Response):
     profile = exchange_session(body.session_id)
     email = profile["email"].lower()
     user = await db.users.find_one({"email": email})
+    if user and user.get("suspended"):
+        raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact support.")
     if not user:
         doc = {"email": email, "name": profile.get("name", email), "picture": profile.get("picture"),
                "global_role": "user", "auth_provider": "google", "created_at": utcnow()}
