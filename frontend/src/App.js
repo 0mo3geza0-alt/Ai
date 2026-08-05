@@ -1,54 +1,62 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AppProvider, useApp } from "@/context/AppContext";
+import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import DashboardLayout from "@/pages/DashboardLayout";
+import DashboardHome from "@/pages/DashboardHome";
+import Chat from "@/pages/Chat";
+import TextStudio from "@/pages/TextStudio";
+import ImageStudio from "@/pages/ImageStudio";
+import History from "@/pages/History";
+import Settings from "@/pages/Settings";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function Loader() {
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
+    <div className="min-h-screen flex items-center justify-center bg-[#05050A]">
+      <div className="flex gap-2"><span className="dot" /><span className="dot" /><span className="dot" /></div>
     </div>
   );
-};
+}
+
+function Protected({ children }) {
+  const { user } = useApp();
+  if (user === null) return <Loader />;
+  if (user === false) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function Guest({ children }) {
+  const { user } = useApp();
+  if (user === null) return <Loader />;
+  if (user) return <Navigate to="/app" replace />;
+  return children;
+}
 
 function App() {
   return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+    <div className="App grain">
+      <AppProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Guest><Login /></Guest>} />
+            <Route path="/register" element={<Guest><Register /></Guest>} />
+            <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
+              <Route index element={<DashboardHome />} />
+              <Route path="chat" element={<Chat />} />
+              <Route path="text" element={<TextStudio />} />
+              <Route path="image" element={<ImageStudio />} />
+              <Route path="history" element={<History />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="top-center" theme="dark" richColors />
+      </AppProvider>
     </div>
   );
 }

@@ -1,0 +1,52 @@
+{
+  "summary": "End-to-end backend + frontend testing of the bilingual AI Platform completed. All 12 review request scenarios verified against the real preview URL with real LLM/Nano-Banana calls. 19/20 backend pytest cases passed (1 intentional skip for credit-drain to save cost); the 20th was a code-review-only guarantee. Every frontend flow (register, login, chat, text, image, history, settings, upgrade, language switcher, admin login) worked. AI feature verdicts (skills loaded: ai-testing-core, ai-testing-llm, ai-testing-image-video): chat - pass - reply '43' to '17+26=?', credits 100->99; text/generate - pass - real article/rewrite/summarize output, credits ->98; image/generate - pass - real base64 JPEG data-URL, natural width 1408 in rendered <img>, credits -5. No mocked outputs, no silent fallbacks (backend logs confirm live LiteLLM calls to gpt-5.6-terra and gemini-3.1-flash-image-preview via EMERGENT_LLM_KEY).",
+  "ai_feature_verdicts": [
+    "chat send (primary) - pass - reply '43' contained expected arithmetic answer; sidebar credits 100->99 in UI; skill: ai-testing-llm",
+    "text generate article/summarize - pass - on-topic prose returned via UI + backend; credits decremented by 1 in both cases; skill: ai-testing-llm",
+    "image generate (Nano Banana) - pass - data:image/jpeg;base64,... with natural width 1408, base64 bytes > 500, JPEG magic FFD8FF; credits decremented by 5; skill: ai-testing-image-video"
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/text/generate + /api/image/generate", "issue": "Under 2 concurrent worker load (pytest-xdist default), LiteLLM/OpenAI upstream returned transient 502s after retries. In serial mode all pass. Not a functional bug but the app has no concurrency queue/retry-with-backoff at the API layer, so real users hammering the endpoint may occasionally see AI error 502."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DashboardLayout", "issue": "Two elements share data-testid='language-switcher-toggle' (mobile header + desktop header). On desktop the mobile one is hidden but still first in the DOM, making generic Playwright selectors click a hidden element. Testability concern.", "selector": "[data-testid='language-switcher-toggle']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "DashboardHome stat cards (Arabic RTL initial load)", "issues": ["Card label text color (#64748B on #0C0C14) is quite dim; borderline WCAG AA. English view is clearer. Consider bumping label color to #94A3B8 for contrast."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/ai_platform_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider dedup / suffixing the language-switcher-toggle data-testid (e.g., -desktop / -mobile) so tests can target the visible one deterministically.",
+    "Optional: add a small retry/backoff around emergentintegrations LlmChat calls, or return 429 with a friendlier message when upstream retries fail.",
+    "Optional (design): lighten stat-card label color for better contrast in Arabic RTL default theme."
+  ],
+  "critical_code_review_comments": [
+    "server.py leaks two subtle behaviors worth double-checking: chat 'send_chat' catches all exceptions and refunds credits, but does not refund on 'session not found' path - user has to be logged in and pay credits first, so no refund needed; ordering is correct.",
+    "spend_credits refunds are performed only when the LLM call itself throws; if the API-level HTTPException is raised later (e.g., empty image list) the code correctly refunds - good.",
+    "get_current_user re-queries the user on every request (extra DB call). For hot paths (chat streaming style) consider caching or trusting JWT claims.",
+    "CORS uses allow_credentials=True with an explicit origin (FRONTEND_URL) - correct pattern.",
+    "Cookies are set with secure=True and samesite='none' - correct for the preview HTTPS origin; would break on plain HTTP local dev.",
+    "History delete doesn't verify 'kind' - benign.",
+    "Chat title truncation uses body.message[:40] before it is stored; fine.",
+    "No rate limiting on any endpoint - fine for MVP but could be noted."
+  ],
+  "updated_files": [
+    "/app/backend/tests/ai_platform_test.py (new pytest suite - 20 tests covering auth, chat, text, image, history, usage, account, credits)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@aiplatform.com / admin12345 works. Registered ephemeral test users are prefixed 'test_' and 'testfe_' with password test1234 (or 'newpass123' after change-password).",
+  "seed_data_creation": "Two test users were registered during backend + FE runs; each ran 1 chat + 1-2 text + 1-2 image operations. Their history and sessions remain in the DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend at REACT_APP_BACKEND_URL is fully working. Use `pytest backend/tests/ai_platform_test.py -n 0 -v` (serial with `-n 0` to avoid transient 502s from parallel LiteLLM calls under xdist). All flows verified via real UI: register->/app, chat gets real reply from gpt-5.6-terra, text gets real prose, image returns real base64 JPEG via nano-banana. Default UI language is Arabic RTL; toggle to English works and persists via localStorage.",
+  "rca of the issue": "N/A - no unresolved bugs. Only two minor observations: (1) duplicate language-switcher-toggle testid across mobile+desktop headers, (2) concurrent LLM requests via xdist trigger LiteLLM 502 retries."
+}
