@@ -431,7 +431,7 @@ async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Dep
 
 # ----------------------------------------------------------------- share / export
 @router.post("/orgs/{org_id}/creations/{cid}/share")
-async def share_creation(org_id: str, cid: str, ctx: dict = Depends(require_permission("file:read"))):
+async def share_creation(org_id: str, cid: str, ctx: dict = Depends(require_permission("file:write"))):
     db = get_db()
     c = await db.creations.find_one({"_id": ObjectId(cid), "org_id": org_id})
     if not c:

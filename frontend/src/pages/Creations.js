@@ -27,13 +27,18 @@ export default function Creations() {
   }, [items]); // eslint-disable-line
 
   const share = async (id) => {
+    let link;
     try {
       const { data } = await api.post(`/orgs/${oid}/creations/${id}/share`);
-      const link = `${window.location.origin}${data.path}`;
+      link = `${window.location.origin}${data.path}`;
+    } catch { toast.error("Could not create share link"); return; }
+    setShared((s) => ({ ...s, [id]: true })); setTimeout(() => setShared((s) => ({ ...s, [id]: false })), 2000);
+    try {
       await navigator.clipboard.writeText(link);
-      setShared((s) => ({ ...s, [id]: true })); setTimeout(() => setShared((s) => ({ ...s, [id]: false })), 2000);
-      toast.success("Public link copied");
-    } catch { toast.error("Could not create share link"); }
+      toast.success("Public link copied to clipboard");
+    } catch {
+      toast.success("Public link created", { description: link, duration: 8000 });
+    }
   };
 
   const exportDoc = async (id, fmt) => {

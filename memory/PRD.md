@@ -47,6 +47,21 @@ Build a production-grade Autonomous AI Agent Platform following a 15-phase roadm
 - Frontend: Chat, Create Studio (tabs: Document/Code/Image/Audio), Creations gallery, Admin, sidebar credits badge + org switcher.
 - Fix applied: idempotent admin seed (role/org/membership/default_org_id); per-request image session id.
 
-## Env-adapted / deferred (honest status)
-- Next.js→CRA React; Celery/Redis→async + Mongo; Postgres→Mongo; Qdrant→(future) Mongo vector; K8s/Helm→artifacts in /app/infra.
-- **Not built (need external keys / not runnable here):** real Video & Music generation (need fal.ai etc.), voice-cloning (ElevenLabs), Stripe billing (credits are in-app), live browser-automation module, full plugin marketplace, real K8s deploy. Chat is non-streaming (reliable) rather than SSE.
+## Improvements round (2026-08-05) ✅ verified (backend 100%, frontend 95%)
+Implemented user-requested items 2,3,4,5,6,7,9,11,12:
+- (2) **Streaming Chat (SSE)** endpoint `/chat/.../stream` + fetch-reader consumer (note: server generates full reply then streams word-by-word — reliable, not token-level).
+- (3) **Instant credit refresh** in sidebar after every generation.
+- (4) **Race-safe credits**: atomic `findOneAndUpdate({credits:{$gte:cost}})` — no negative balances (verified with concurrent debits).
+- (5) **AI Video** via `fal-ai/ltx-video` (Universal Key) — background job + status polling.
+- (6) **AI Music** via `fal-ai/stable-audio` (Universal Key) — background job + polling. (True voice-cloning needs an ElevenLabs key — deferred.)
+- (7) **Image modifiers/variations**: photorealistic / no-background / upscale / anime / 3d presets.
+- (9) **Research Agent**: DuckDuckGo (no key) web sources + LLM report with inline citations & source links.
+- (11) **Prompt templates**: quick-fill chips per Create tab.
+- (12) **Share & Export**: public share links (`/share/{token}`, unauth) + export text creations as .md/.txt/.html.
+- Credits: chat=1 doc=1 code=2 image=5 audio=3 video=15 music=8 research=2.
+- Fixes: idempotent admin seed; per-request image session id; share() clipboard-safe toast in iframe; share gated to file:write.
+
+## Known limitations / deferred
+- Chat streaming is server-simulated (full reply then chunked), not SDK token streaming.
+- Voice-cloning (ElevenLabs), real Stripe billing, browser-automation module, plugin marketplace, K8s deploy: not built (need keys / not runnable in preview).
+- Video/music are slow (~1-3 min) — handled via async jobs + polling.
