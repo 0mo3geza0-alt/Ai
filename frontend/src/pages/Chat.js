@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, Video, AudioLines, Code2, Globe } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, Video, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Dots } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const SUGGESTIONS = [
   { icon: ImageIcon, label: "Generate an image", text: "Generate an image of a futuristic city at sunset" },
@@ -129,6 +131,9 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
   const endRef = useRef(null);
 
   const loadSessions = async () => { const { data } = await api.get(`/orgs/${oid}/chat/sessions`); setSessions(data); return data; };
@@ -136,8 +141,21 @@ export default function Chat() {
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, sending]);
 
   const openSession = async (id) => { setActive(id); const { data } = await api.get(`/orgs/${oid}/chat/sessions/${id}/messages`); setMessages(data); };
-  const newChat = async () => { setActive(null); setMessages([]); };
+  const newChat = async () => { setActive(null); setMessages([]); setAttachment(null); };
   const delSession = async (id, e) => { e.stopPropagation(); await api.delete(`/orgs/${oid}/chat/sessions/${id}`); if (active === id) { setActive(null); setMessages([]); } loadSessions(); };
+
+  const pickFile = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", f);
+      const { data } = await api.post(`/orgs/${oid}/uploads`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setAttachment(data);
+    } catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Upload failed"); }
+    finally { setUploading(false); }
+  };
 
   const pollJob = async (msg) => {
     const cid = msg.media?.cid;
@@ -154,23 +172,51 @@ export default function Chat() {
     }
   };
 
-  const send = async (preset) => {
+  const send = async (preset, attachArg) => {
     const text = (preset ?? input).trim();
-    if (!text || sending) return;
+    const useAttach = attachArg !== undefined ? attachArg : attachment;
+    if ((!text && !useAttach) || sending) return;
     let sid = active;
-    if (!sid) { const { data } = await api.post(`/orgs/${oid}/chat/sessions`, {}); sid = data.id; setActive(sid); }
-    setInput("");
-    setMessages((m) => [...m, { role: "user", content: text, kind: "text" }]);
+    if (!sid) { const { data } = await api.post(`/orgs/${oid}/chat/sessions`, {}); sid = data.id; setActive(sid); loadSessions(); }
+    setInput(""); setAttachment(null);
+    setMessages((m) => [...m, { role: "user", content: text, kind: "text", media: useAttach ? { type: useAttach.kind, url: useAttach.url, name: useAttach.name } : null }]);
+    setMessages((m) => [...m, { role: "assistant", content: "", kind: "text", media: null, _streaming: true }]);
     setSending(true);
+    const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
     try {
-      const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/agent`, { message: text });
-      setMessages((m) => [...m, { role: "assistant", content: data.content, kind: data.kind, media: data.media }]);
-      refreshUsage(); loadSessions();
-      if ((data.kind === "video" || data.kind === "webapp") && data.media?.status === "processing") pollJob({ media: data.media });
+      const token = localStorage.getItem("token");
+      const resp = await fetch(`${API}/orgs/${oid}/chat/sessions/${sid}/agent/stream`, {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message: text, attachment: useAttach || null }),
+      });
+      if (!resp.ok || !resp.body) { throw new Error(resp.status === 402 ? "Out of credits — upgrade your plan." : "Request failed"); }
+      const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          if (!chunk.startsWith("data: ")) continue;
+          const ev = JSON.parse(chunk.slice(6));
+          if (ev.type === "delta") patchLast((l) => ({ ...l, content: (l.content || "") + ev.content }));
+          else if (ev.type === "error") { patchLast((l) => ({ ...l, _streaming: false, content: ev.detail || "Something went wrong." })); toast.error(ev.detail || "Something went wrong."); }
+          else if (ev.type === "done") {
+            const mm = ev.message;
+            patchLast(() => ({ role: "assistant", content: mm.content, kind: mm.kind, media: mm.media }));
+            if ((mm.kind === "video" || mm.kind === "webapp") && mm.media?.status === "processing") pollJob({ media: mm.media });
+          }
+        }
+      }
     } catch (e) {
-      toast.error(e.response?.status === 402 ? "Out of credits — upgrade your plan." : formatApiErrorDetail(e.response?.data?.detail) || "Something went wrong.");
-      setMessages((m) => m.slice(0, -1));
-    } finally { setSending(false); }
+      toast.error(e.message || "Something went wrong.");
+      setMessages((m) => m.filter((x) => !x._streaming));
+    } finally { setSending(false); refreshUsage(); loadSessions(); }
+  };
+
+  const regenerate = (i) => {
+    for (let j = i - 1; j >= 0; j--) { if (messages[j].role === "user") { send(messages[j].content); return; } }
   };
 
   return (
@@ -209,26 +255,48 @@ export default function Chat() {
               {messages.map((m, i) => (
                 <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div data-testid={`chat-msg-${m.role}`} className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${m.role === "user" ? "ai-gradient-bg text-white" : "bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-[#F8FAFC]"}`}>
-                    {m.kind === "code" || m.kind === "webapp" ? (m.content && <p className="whitespace-pre-wrap">{m.content}</p>) : (
+                    {m.role === "user" && m.media?.url && (m.media.type === "image"
+                      ? <div className="mb-2"><BlobMedia url={m.media.url} fallbackH="h-24" render={(src) => <img data-testid="user-attachment-image" src={src} alt="" className="rounded-lg max-h-48 w-auto" />} /></div>
+                      : <div className="mb-2 flex items-center gap-2 text-xs bg-black/20 rounded-lg px-2.5 py-1.5"><FileText className="w-3.5 h-3.5" /> {m.media.name || "file"}</div>)}
+                    {m._streaming && !m.content ? <Dots /> : (m.kind === "code" || m.kind === "webapp" ? (m.content && <p className="whitespace-pre-wrap">{m.content}</p>) : (
                       <div className="prose-chat"><ReactMarkdown>{m.content || ""}</ReactMarkdown></div>
-                    )}
+                    ))}
                     {m.role === "assistant" && <MediaBlock m={m} pollJob={pollJob} />}
+                    {m.role === "assistant" && !m._streaming && m.media?.status !== "processing" && (
+                      <button data-testid={`regenerate-${i}`} onClick={() => regenerate(i)} disabled={sending}
+                        className="mt-2.5 inline-flex items-center gap-1 text-xs text-[#64748B] hover:text-[#A855F7] transition-colors">
+                        <RefreshCw className="w-3.5 h-3.5" /> Regenerate
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               ))}
-              {sending && <div className="flex justify-start"><div className="px-4 py-3 rounded-2xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] flex items-center gap-2 text-sm text-[#64748B]"><Dots /> Working on it…</div></div>}
               <div ref={endRef} />
             </div>
           )}
         </div>
         <div className="border-t border-[rgba(255,255,255,0.06)] p-4">
+          {attachment && (
+            <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2" data-testid="attachment-preview">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#12121C] border border-[rgba(255,255,255,0.12)] text-xs text-[#94A3B8]">
+                {attachment.kind === "image" ? <ImageIcon className="w-3.5 h-3.5 text-[#A855F7]" /> : <FileText className="w-3.5 h-3.5 text-[#A855F7]" />}
+                <span className="max-w-[200px] truncate">{attachment.name}</span>
+                <button data-testid="attachment-remove" onClick={() => setAttachment(null)} className="text-[#64748B] hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          )}
           <div className="max-w-3xl mx-auto flex items-end gap-3">
+            <input ref={fileRef} type="file" accept="image/*,.pdf,.txt,.csv,.md,.json,.docx" className="hidden" onChange={pickFile} data-testid="chat-file-input" />
+            <Button data-testid="chat-attach-btn" onClick={() => fileRef.current?.click()} disabled={uploading || sending} variant="outline"
+              className="rounded-xl h-10 w-10 p-0 bg-[#12121C] border-[rgba(255,255,255,0.12)] text-[#94A3B8] hover:text-white shrink-0">
+              {uploading ? <Dots /> : <Paperclip className="w-4 h-4" />}
+            </Button>
             <Textarea data-testid="chat-input" value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="Describe what you want to create…" rows={1} className="resize-none bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white focus:border-[#4F46E5] transition-colors rounded-xl" />
-            <Button data-testid="chat-send-btn" onClick={() => send()} disabled={sending || !input.trim()} className="rounded-xl h-10 w-10 p-0 ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity shrink-0"><Send className="w-4 h-4" /></Button>
+            <Button data-testid="chat-send-btn" onClick={() => send()} disabled={sending || uploading || (!input.trim() && !attachment)} className="rounded-xl h-10 w-10 p-0 ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity shrink-0"><Send className="w-4 h-4" /></Button>
           </div>
-          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Nexus can create images, videos, voice, code, documents & web apps — just ask.</p>
+          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Attach an image or file, or just ask — Nexus makes images, videos, voice, code, documents & web apps.</p>
         </div>
       </div>
     </div>

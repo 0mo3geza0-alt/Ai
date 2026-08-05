@@ -4,7 +4,7 @@ import time
 import base64
 import requests
 from urllib.parse import quote
-from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, ImageContent, FileContentWithMimeType
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 from core.logging import logger
 
@@ -105,10 +105,19 @@ ROUTER_SYSTEM = (
 )
 
 
-async def route_intent(message: str, history: str = "") -> dict:
+async def route_intent(message: str, history: str = "", has_image: bool = False, has_file: bool = False) -> dict:
+    hint = ""
+    if has_image:
+        hint = ("\nNOTE: the user attached an IMAGE. If they want to modify/edit/change the image, action='image'. "
+                "If they ask to describe/analyze it or ask a question about it, action='chat'. "
+                "If they want to build a site/app FROM it, action='webapp'.")
+    elif has_file:
+        hint = "\nNOTE: the user attached a FILE (pdf/doc/csv/txt). Usually action='chat' to analyze/answer, unless they clearly want code/webapp/document."
+    hint += ("\nNOTE: if the user asks to modify/change/tweak a website/app/game already built earlier in the chat "
+             "(e.g. 'make the header blue', 'add a button'), action='webapp'.")
     try:
         raw = await generate_text(session_id=f"route-{uuid.uuid4().hex}", system=ROUTER_SYSTEM,
-                                  prompt=message, history=history,
+                                  prompt=message + hint, history=history,
                                   provider="gemini", model="gemini-3-flash-preview")
         data = extract_json(raw) or {}
     except Exception as e:
@@ -123,6 +132,47 @@ async def route_intent(message: str, history: str = "") -> dict:
         "language": (data.get("language") or "").strip(),
         "reply": (data.get("reply") or "").strip(),
     }
+
+
+async def edit_image(prompt: str, image_b64: str):
+    """Edit an existing image with nano-banana using the source image as reference."""
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"imgedit-{uuid.uuid4().hex}", system_message="You are an AI image editor.")
+    chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
+    _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt, file_contents=[ImageContent(image_base64=image_b64)]))
+    if not images:
+        raise RuntimeError("No image generated")
+    img = images[0]
+    return img["mime_type"], base64.b64decode(img["data"])
+
+
+async def describe_media(prompt: str, image_b64: str = None, file_path: str = None, file_mime: str = None) -> str:
+    """Vision / file understanding — returns a text answer about the attachment."""
+    contents = []
+    if image_b64:
+        contents.append(ImageContent(image_base64=image_b64))
+    if file_path:
+        contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
+    chat = _new_chat(f"desc-{uuid.uuid4().hex}", "You are a helpful multimodal assistant. Analyze the attachment and respond in the user's language.", "gemini", "gemini-3-flash-preview")
+    msg = UserMessage(text=prompt, file_contents=contents) if contents else UserMessage(text=prompt)
+    return await chat.send_message(msg)
+
+
+async def stream_chat(session_id: str, system: str, prompt: str, history: str = "",
+                      image_b64: str = None, file_path: str = None, file_mime: str = None):
+    """Stream a chat reply token-by-token, optionally grounded on an attached image/file."""
+    multimodal = bool(image_b64 or file_path)
+    provider, model = ("gemini", "gemini-3-flash-preview") if multimodal else DEFAULT_TEXT
+    full = (history + "\n" + prompt) if history else prompt
+    chat = _new_chat(session_id, system, provider, model)
+    contents = []
+    if image_b64:
+        contents.append(ImageContent(image_base64=image_b64))
+    if file_path:
+        contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
+    msg = UserMessage(text=full, file_contents=contents) if contents else UserMessage(text=full)
+    async for event in chat.stream_message(msg):
+        if isinstance(event, TextDelta) and event.content:
+            yield event.content
 
 
 async def generate_image(prompt: str):

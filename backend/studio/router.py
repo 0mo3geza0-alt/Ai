@@ -1,8 +1,11 @@
 import uuid
 import json
+import os
+import base64
+import tempfile
 import asyncio
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from pydantic import BaseModel
@@ -29,8 +32,17 @@ class ChatSendBody(BaseModel):
     model: str | None = None
 
 
+class Attachment(BaseModel):
+    path: str
+    mime: str
+    kind: str = "file"          # image | file
+    name: str | None = None
+    url: str | None = None
+
+
 class AgentBody(BaseModel):
     message: str
+    attachment: Attachment | None = None
 
 
 class DocBody(BaseModel):
@@ -188,10 +200,15 @@ WEBAPP_SYSTEM = ("You build complete, self-contained single-file web apps, games
                  "avoiding external files/CDNs where possible. Output ONLY the HTML inside a single ```html code block.")
 
 
-async def _run_webapp_job(org_id: str, cid: str, prompt: str):
+async def _run_webapp_job(org_id: str, cid: str, prompt: str, edit_html: str | None = None):
     db = get_db()
     try:
-        raw = await gateway.generate_text(session_id=uuid.uuid4().hex, system=WEBAPP_SYSTEM, prompt=prompt)
+        if edit_html:
+            gen_prompt = (f"Here is the current app's full HTML:\n```html\n{edit_html}\n```\n\n"
+                          f"Apply this change: {prompt}\nReturn the COMPLETE updated HTML document.")
+        else:
+            gen_prompt = prompt
+        raw = await gateway.generate_text(session_id=uuid.uuid4().hex, system=WEBAPP_SYSTEM, prompt=gen_prompt)
         html = gateway.strip_fences(raw)
         path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.html"
         await asyncio.to_thread(put_object, path, html.encode("utf-8"), "text/html")
@@ -203,38 +220,61 @@ async def _run_webapp_job(org_id: str, cid: str, prompt: str):
         await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "failed", "error": str(e)[:200]}})
 
 
-# ----------------------------------------------------------------- unified agent (multimodal chat)
-@router.post("/orgs/{org_id}/chat/sessions/{sid}/agent")
-async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends(require_permission("file:write"))):
-    db = get_db()
-    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    user_id = ctx["user"]["id"]
-    ts = utcnow()
-    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
-                                       "content": body.message, "kind": "text", "media": None, "created_at": ts})
-    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
-    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+async def _fetch_attachment(attachment):
+    """Download an attachment from storage -> (image_b64, file_path, file_mime)."""
+    if not attachment:
+        return None, None, None
+    data, _ = await asyncio.to_thread(get_object, attachment.path)
+    if attachment.kind == "image":
+        return base64.b64encode(data).decode(), None, None
+    ext = os.path.splitext(attachment.name or "")[1] or ".bin"
+    fd, tmp = tempfile.mkstemp(suffix=ext)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return None, tmp, attachment.mime
 
-    route = await gateway.route_intent(body.message, context)
-    action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
-    kind, content, media = "text", (reply or ""), None
+
+async def _last_webapp_html(db, sid):
+    msgs = await db.chat_messages.find({"session_id": sid, "kind": "webapp"}).sort("created_at", -1).to_list(20)
+    for m in msgs:
+        cid = (m.get("media") or {}).get("cid")
+        if cid:
+            c = await db.creations.find_one({"_id": ObjectId(cid), "status": "done"})
+            if c and c.get("content"):
+                return c["content"]
+    return None
+
+
+async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
+                      img_b64=None, file_path=None, file_mime=None):
+    """Run a non-chat generation. Returns (kind, content, media). Raises HTTPException on failure."""
+    has_att = bool(img_b64 or file_path)
+    # For non-image actions, fold the attachment into the prompt as textual context.
+    if has_att and action != "image":
+        try:
+            desc = await gateway.describe_media("Describe this attachment in detail so it can be used as context.",
+                                                img_b64, file_path, file_mime)
+            prompt = f"{prompt}\n\n[Context extracted from the user's attachment]:\n{desc}"
+        except Exception:
+            pass
 
     if action == "image":
         await _spend(db, org_id, "image")
         try:
-            mime, data = await gateway.generate_image(prompt)
+            if img_b64:
+                mime, data = await gateway.edit_image(prompt, img_b64)
+            else:
+                mime, data = await gateway.generate_image(prompt)
             ext = "png" if "png" in mime else "jpg"
             path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.{ext}"
             put_object(path, data, mime)
         except Exception as e:
             await _refund(db, org_id, "image"); raise HTTPException(status_code=502, detail=f"Image error: {e}")
         cid = await _log_creation(db, org_id, user_id, "image", prompt[:60], prompt, storage_path=path, content_type=mime)
-        kind, content = "image", (reply or "Here's your image:")
-        media = {"type": "image", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
+        return "image", (reply or ("Here's your edited image:" if img_b64 else "Here's your image:")), \
+               {"type": "image", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
 
-    elif action == "voice":
+    if action == "voice":
         await _spend(db, org_id, "audio")
         try:
             audio = await gateway.generate_audio(prompt, "nova")
@@ -243,22 +283,20 @@ async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends
         except Exception as e:
             await _refund(db, org_id, "audio"); raise HTTPException(status_code=502, detail=f"Voice error: {e}")
         cid = await _log_creation(db, org_id, user_id, "audio", prompt[:60], prompt, storage_path=path, content_type="audio/mpeg")
-        kind, content = "voice", (reply or "Here's your voiceover:")
-        media = {"type": "voice", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
+        return "voice", (reply or "Here's your voiceover:"), \
+               {"type": "voice", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
 
-    elif action == "document":
+    if action == "document":
         await _spend(db, org_id, "document")
         try:
             doc = await gateway.generate_text(session_id=uuid.uuid4().hex,
-                system="You are an expert writer. Write clear, well-structured long-form content in markdown.",
-                prompt=prompt)
+                system="You are an expert writer. Write clear, well-structured long-form content in markdown.", prompt=prompt)
         except Exception as e:
             await _refund(db, org_id, "document"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
         cid = await _log_creation(db, org_id, user_id, "document", prompt[:60], prompt, content=doc)
-        kind, content = "document", doc
-        media = {"type": "document", "cid": cid, "status": "done"}
+        return "document", doc, {"type": "document", "cid": cid, "status": "done"}
 
-    elif action == "code":
+    if action == "code":
         await _spend(db, org_id, "code")
         language = lang or "python"
         system = (f"You are an expert {language} engineer. Output production-ready {language} code only, "
@@ -268,36 +306,63 @@ async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends
         except Exception as e:
             await _refund(db, org_id, "code"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
         cid = await _log_creation(db, org_id, user_id, "code", prompt[:60], prompt, content=code, meta={"language": language})
-        kind, content = "code", code
-        media = {"type": "code", "language": language, "cid": cid, "status": "done"}
+        return "code", code, {"type": "code", "language": language, "cid": cid, "status": "done"}
 
-    elif action == "webapp":
+    if action == "webapp":
         await _spend(db, org_id, "code")
+        edit_html = await _last_webapp_html(db, sid)
         cid = await _log_creation(db, org_id, user_id, "webapp", prompt[:60], prompt, meta={"status": "processing"})
         await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
-        asyncio.create_task(_run_webapp_job(org_id, cid, prompt))
-        kind, content = "webapp", (reply or "Building your app — this takes a few seconds…")
-        media = {"type": "webapp", "cid": cid, "status": "processing",
-                 "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
+        asyncio.create_task(_run_webapp_job(org_id, cid, prompt, edit_html=edit_html))
+        return "webapp", (reply or ("Updating your app…" if edit_html else "Building your app — this takes a few seconds…")), \
+               {"type": "webapp", "cid": cid, "status": "processing",
+                "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
 
-    elif action == "video":
+    if action == "video":
         await _spend(db, org_id, "video")
         cid = await _log_creation(db, org_id, user_id, "video", prompt[:60], prompt, meta={"status": "processing"})
         await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
         asyncio.create_task(_run_media_job(org_id, cid, "video", lambda: gateway.generate_video(prompt), "mp4"))
-        kind, content = "video", (reply or "Rendering your video — this can take 1-3 minutes…")
-        media = {"type": "video", "cid": cid, "status": "processing",
-                 "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
+        return "video", (reply or "Rendering your video — this can take 1-3 minutes…"), \
+               {"type": "video", "cid": cid, "status": "processing",
+                "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
 
-    else:  # chat
+    return "text", (reply or ""), None
+
+
+CHAT_SYSTEM = "You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists."
+
+
+# ----------------------------------------------------------------- unified agent (multimodal chat)
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/agent")
+async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    user_id = ctx["user"]["id"]
+    att = body.attachment
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
+                                       "content": body.message, "kind": "text",
+                                       "media": ({"type": att.kind, "url": att.url, "name": att.name} if att else None),
+                                       "created_at": utcnow()})
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+    img_b64, file_path, file_mime = await _fetch_attachment(att)
+    route = await gateway.route_intent(body.message, context, has_image=bool(img_b64), has_file=bool(file_path))
+    action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
+
+    if action == "chat":
         await _spend(db, org_id, "chat")
         try:
-            content = await gateway.generate_text(session_id=sid,
-                system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
-                prompt=f"user: {body.message}", history=context)
+            content = await gateway.generate_text(session_id=sid, system=CHAT_SYSTEM,
+                prompt=f"user: {body.message}", history=context) if not (img_b64 or file_path) else \
+                await gateway.describe_media(body.message, img_b64, file_path, file_mime)
         except Exception as e:
             await _refund(db, org_id, "chat"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
         kind, media = "text", None
+    else:
+        kind, content, media = await _run_action(db, org_id, user_id, sid, action, prompt, lang, reply, img_b64, file_path, file_mime)
 
     a_ts = utcnow()
     adoc = {"session_id": sid, "org_id": org_id, "role": "assistant",
@@ -311,6 +376,109 @@ async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends
     return {"id": str(res.inserted_id), "role": "assistant", "content": content, "kind": kind,
             "media": media, "action": action, "credits": org.get("credits", 0) if org else 0,
             "title": upd.get("title", session.get("title"))}
+
+
+# ----------------------------------------------------------------- chat file/image upload
+@router.post("/orgs/{org_id}/uploads")
+async def upload_attachment(org_id: str, file: UploadFile = File(...), ctx: dict = Depends(require_permission("file:write"))):
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 15MB)")
+    mime = file.content_type or "application/octet-stream"
+    kind = "image" if mime.startswith("image/") else "file"
+    ext = os.path.splitext(file.filename or "")[1] or ""
+    path = f"{APP_NAME}/{org_id}/uploads/{uuid.uuid4().hex}{ext}"
+    try:
+        await asyncio.to_thread(put_object, path, data, mime)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Upload failed: {e}")
+    db = get_db()
+    res = await db.uploads.insert_one({"org_id": org_id, "user_id": ctx["user"]["id"], "storage_path": path,
+                                       "mime": mime, "kind": kind, "name": file.filename, "created_at": utcnow()})
+    uid = str(res.inserted_id)
+    return {"id": uid, "path": path, "mime": mime, "kind": kind, "name": file.filename,
+            "url": f"/api/orgs/{org_id}/uploads/{uid}/file"}
+
+
+@router.get("/orgs/{org_id}/uploads/{uid}/file")
+async def serve_upload(org_id: str, uid: str, ctx: dict = Depends(require_permission("file:read"))):
+    db = get_db()
+    u = await db.uploads.find_one({"_id": ObjectId(uid), "org_id": org_id})
+    if not u:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    data, ctype = await asyncio.to_thread(get_object, u["storage_path"])
+    return Response(content=data, media_type=ctype)
+
+
+# ----------------------------------------------------------------- unified agent (streaming SSE)
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/agent/stream")
+async def chat_agent_stream(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    user_id = ctx["user"]["id"]
+    att = body.attachment
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
+                                       "content": body.message, "kind": "text",
+                                       "media": ({"type": att.kind, "url": att.url, "name": att.name} if att else None),
+                                       "created_at": utcnow()})
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+    img_b64, file_path, file_mime = await _fetch_attachment(att)
+    route = await gateway.route_intent(body.message, context, has_image=bool(img_b64), has_file=bool(file_path))
+    action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
+
+    async def sse(obj):
+        return f"data: {json.dumps(obj)}\n\n"
+
+    async def event_stream():
+        nonlocal action
+        yield await sse({"type": "start", "action": action})
+        try:
+            if action == "chat":
+                try:
+                    await _spend(db, org_id, "chat")
+                except HTTPException as he:
+                    yield await sse({"type": "error", "detail": he.detail}); return
+                acc = ""
+                try:
+                    async for delta in gateway.stream_chat(sid, CHAT_SYSTEM, f"user: {body.message}", context,
+                                                           image_b64=img_b64, file_path=file_path, file_mime=file_mime):
+                        acc += delta
+                        yield await sse({"type": "delta", "content": delta})
+                except Exception as e:
+                    await _refund(db, org_id, "chat")
+                    yield await sse({"type": "error", "detail": f"AI error: {e}"}); return
+                kind, content, media = "text", acc, None
+            else:
+                try:
+                    kind, content, media = await _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
+                                                             img_b64, file_path, file_mime)
+                except HTTPException as he:
+                    yield await sse({"type": "error", "detail": he.detail}); return
+
+            a_ts = utcnow()
+            adoc = {"session_id": sid, "org_id": org_id, "role": "assistant",
+                    "content": content, "kind": kind, "media": media, "created_at": a_ts}
+            res = await db.chat_messages.insert_one(adoc)
+            upd = {"updated_at": a_ts}
+            if session.get("title", "New chat") == "New chat":
+                upd["title"] = body.message[:40]
+            await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
+            org = await db.organizations.find_one({"_id": ObjectId(org_id)})
+            yield await sse({"type": "done", "message": {"id": str(res.inserted_id), "role": "assistant",
+                            "content": content, "kind": kind, "media": media},
+                            "action": action, "credits": org.get("credits", 0) if org else 0,
+                            "title": upd.get("title", session.get("title"))})
+        finally:
+            if file_path:
+                try: os.remove(file_path)
+                except Exception: pass
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
 
 
 # ----------------------------------------------------------------- document generator
