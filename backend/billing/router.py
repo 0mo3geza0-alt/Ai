@@ -71,6 +71,7 @@ async def create_checkout(org_id: str, req: CheckoutRequest, ctx: dict = Depends
     kwargs = dict(
         line_items=[{"price": price.id, "quantity": req.quantity}],
         mode="subscription",
+        customer_email=ctx["user"].get("email") or None,
         success_url=f"{req.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{req.origin_url}/payment/cancel",
         metadata={"org_id": org_id, "user_id": ctx["user"]["id"], "lookup_key": req.lookup_key},

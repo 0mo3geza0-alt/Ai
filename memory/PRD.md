@@ -76,3 +76,17 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
   - Edit-agent knowledge wipe: edit form now prefills existing agent knowledge (fetched from memories filtered by `agent_id`) so saving no longer silently erases it.
 - Backend routes: `/api/orgs/{oid}/agents[/{aid}[/run|/runs]|/team/run|/team/runs]`, `/api/orgs/{oid}/memories[/search]`, `/api/admin/security/overview`, `/api/admin/audit-logs`.
 - Pytest suite: `/app/backend/tests/test_phase7_agents_memory_security.py`.
+
+## Phase 11 — Video quality + Downloads + Stripe Billing (2026-06 update) ✅ verified (backend 5/5 pytest, frontend E2E 100%)
+- **Video model upgraded**: `llm/gateway.py` VIDEO_ENDPOINT → `fal-ai/minimax/hailuo-02/standard/text-to-video` (was `ltx-video`). `generate_video(prompt, duration="6")` now sends `prompt_optimizer=True` for far better prompt adherence + quality; timeout raised to 600s. Verified via live gateway call (returns real mp4).
+- **Download-to-device** buttons added for generated media:
+  - `Creations.js`: `download-<id>` button (fetch blob → `<a download>`), correct extension per kind.
+  - `Create.js` studio: `image-download-link`, `video-download-link`, `music-download-link` (+ existing audio).
+  - Public `SharePage.js`: `share-download-btn` so anyone opening a shared link can save the file to their phone.
+- **Stripe subscription billing** (Flow A claimable sandbox, test mode; GB + digital SaaS → Stripe Tax fallback since sandbox is managed-payments-ineligible):
+  - `billing/setup_stripe.py`: catalog (Pro $19/mo, $180/yr; Business $49/mo, $470/yr) + `PLAN_BY_LOOKUP` (pro→10k credits, business→50k) + `ensure_tax_settings` (GB head office). Idempotent, runs on startup.
+  - `billing/router.py`: `GET /api/billing/plans`, `POST /api/billing/orgs/{oid}/checkout` (customer_email prefill, managed_payments→automatic_tax fallback), `GET /api/billing/status/{sid}` (webhook-fallback flips DB + upgrades org inline), `POST /api/stripe/webhook`.
+  - Frontend: `Billing.js` (plan cards + monthly/yearly toggle + Stripe redirect), `PaymentSuccess.js` (polls status), `PaymentCancel.js`; routes `/app/billing`, `/payment/success`, `/payment/cancel`; sidebar `Billing` nav + clickable credits badge.
+  - Env: `STRIPE_SECRET_KEY/PUBLISHABLE_KEY/ACCOUNT_ID/WEBHOOK_SECRET/MODE` in backend/.env. Test card 4242 4242 4242 4242.
+  - **Billing model**: platform OWNER pays Emergent (Universal Key); end-users pay the owner via Stripe. On paid, org `plan`+`credits` upgrade. E2E verified: fresh user free→Pro (10k credits) via real test-mode payment.
+- Pytest: `/app/backend/tests/test_billing.py` (5/5).
