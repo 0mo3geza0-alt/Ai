@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check } from "lucide-react";
+import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins } from "lucide-react";
 import { useAuth, api } from "@/context/AuthContext";
 import { Logo } from "@/components/shared";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -11,6 +11,7 @@ export default function DashboardLayout() {
   const [open, setOpen] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [activeOrg, setActiveOrg] = useState(null);
+  const [usage, setUsage] = useState(null);
 
   const refreshOrgs = async () => {
     const { data } = await api.get("/orgs");
@@ -23,13 +24,23 @@ export default function DashboardLayout() {
   };
   useEffect(() => { refreshOrgs(); }, []); // eslint-disable-line
 
+  const refreshUsage = async () => {
+    if (!activeOrg) return;
+    try { const { data } = await api.get(`/orgs/${activeOrg.id}/usage`); setUsage(data); } catch { /* ignore */ }
+  };
+  useEffect(() => { refreshUsage(); }, [activeOrg]); // eslint-disable-line
+
   const items = [
     { to: "/app", end: true, icon: LayoutDashboard, label: "Overview", id: "overview" },
+    { to: "/app/chat", icon: MessageSquare, label: "AI Chat", id: "chat" },
+    { to: "/app/create", icon: Sparkles, label: "Create Studio", id: "create" },
+    { to: "/app/creations", icon: Images, label: "Creations", id: "creations" },
     { to: "/app/projects", icon: FolderGit2, label: "Projects", id: "projects" },
     { to: "/app/organization", icon: Building2, label: "Organization", id: "organization" },
     { to: "/app/api-keys", icon: KeyRound, label: "API Keys", id: "api-keys" },
     { to: "/app/settings", icon: SettingsIcon, label: "Settings", id: "settings" },
   ];
+  if (user?.global_role === "admin") items.push({ to: "/app/admin", icon: Shield, label: "Admin", id: "admin" });
 
   const doLogout = async () => { await logout(); nav("/"); };
 
@@ -67,6 +78,12 @@ export default function DashboardLayout() {
       </nav>
 
       <div className="p-3 border-t border-[rgba(255,255,255,0.06)]">
+        <div className="flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] text-sm">
+          <Coins className="w-4 h-4 text-[#D946EF]" />
+          <span data-testid="sidebar-credits" className="text-white font-medium">{usage?.credits ?? "…"}</span>
+          <span className="text-[#64748B]">credits</span>
+          <span className="ms-auto text-xs text-[#64748B] capitalize">{usage?.plan}</span>
+        </div>
         <div className="px-3 py-2 text-sm">
           <p className="text-white font-medium truncate">{user?.name}</p>
           <p className="text-[#64748B] text-xs truncate">{user?.email}</p>
@@ -95,7 +112,7 @@ export default function DashboardLayout() {
           <span className="w-6" />
         </header>
         <main className="flex-1 min-w-0">
-          {activeOrg ? <Outlet context={{ activeOrg, orgs, setActiveOrg, refreshOrgs, user }} /> :
+          {activeOrg ? <Outlet context={{ activeOrg, orgs, setActiveOrg, refreshOrgs, refreshUsage, usage, user }} /> :
             <div className="p-8 text-[#64748B]">Loading workspace…</div>}
         </main>
       </div>

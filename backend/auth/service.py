@@ -22,6 +22,7 @@ def serialize_user(u: dict) -> dict:
 
 def serialize_org(o: dict) -> dict:
     return {"id": str(o["_id"]), "name": o["name"], "owner_id": o.get("owner_id"),
+            "plan": o.get("plan", "free"), "credits": o.get("credits", 0),
             "created_at": _iso(o.get("created_at"))}
 
 

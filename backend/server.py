@@ -16,6 +16,8 @@ from core.base_models import utcnow
 from auth.router import router as auth_router
 from auth.security import hash_password, verify_password
 from workspace.router import router as workspace_router
+from studio.router import router as studio_router
+from admin_api import router as admin_router
 from workspace.storage import init_storage
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
@@ -43,6 +45,8 @@ async def root():
 app.include_router(meta_router)
 app.include_router(auth_router)
 app.include_router(workspace_router)
+app.include_router(studio_router)
+app.include_router(admin_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -77,13 +81,39 @@ async def _seed_admin():
                                          "password_hash": hash_password(password),
                                          "global_role": "admin", "auth_provider": "local",
                                          "created_at": utcnow()})
-        org = await db.organizations.insert_one({"name": "Admin Org", "owner_id": str(res.inserted_id),
-                                                 "created_at": utcnow()})
-        await db.memberships.insert_one({"org_id": str(org.inserted_id), "user_id": str(res.inserted_id),
+        user_id = res.inserted_id
+    else:
+        user_id = existing["_id"]
+        upd = {}
+        if not verify_password(password, existing.get("password_hash", "")):
+            upd["password_hash"] = hash_password(password)
+        if existing.get("global_role") != "admin":
+            upd["global_role"] = "admin"
+        if upd:
+            await db.users.update_one({"_id": user_id}, {"$set": upd})
+    # Ensure admin has a pro org + membership + default_org_id (idempotent)
+    user = await db.users.find_one({"_id": user_id})
+    org_id = user.get("default_org_id") if user else None
+    org = None
+    if org_id:
+        try:
+            from bson import ObjectId as _OID
+            org = await db.organizations.find_one({"_id": _OID(org_id)})
+        except Exception:
+            org = None
+    if not org:
+        org_ins = await db.organizations.insert_one({"name": "Admin Org", "owner_id": str(user_id),
+                                                     "plan": "pro", "credits": 100000, "created_at": utcnow()})
+        org_id = str(org_ins.inserted_id)
+        await db.users.update_one({"_id": user_id}, {"$set": {"default_org_id": org_id}})
+    else:
+        # Make sure plan/credits are healthy for admin org
+        if org.get("plan") != "pro" or (org.get("credits", 0) < 1000):
+            await db.organizations.update_one({"_id": org["_id"]}, {"$set": {"plan": "pro", "credits": 100000}})
+    membership = await db.memberships.find_one({"org_id": str(org_id), "user_id": str(user_id)})
+    if not membership:
+        await db.memberships.insert_one({"org_id": str(org_id), "user_id": str(user_id),
                                          "role": "owner", "created_at": utcnow()})
-        await db.users.update_one({"_id": res.inserted_id}, {"$set": {"default_org_id": str(org.inserted_id)}})
-    elif not verify_password(password, existing.get("password_hash", "")):
-        await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(password)}})
 
 
 @app.on_event("startup")

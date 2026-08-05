@@ -21,7 +21,8 @@ router = APIRouter(prefix="/api")
 
 
 async def _create_personal_org(db, user_id: str, name: str) -> str:
-    org = {"name": f"{name}'s Org", "owner_id": user_id, "created_at": utcnow()}
+    org = {"name": f"{name}'s Org", "owner_id": user_id, "created_at": utcnow(),
+           "plan": "free", "credits": 200}
     res = await db.organizations.insert_one(org)
     oid = str(res.inserted_id)
     await db.memberships.insert_one({"org_id": oid, "user_id": user_id, "role": "owner",
@@ -155,7 +156,8 @@ async def list_orgs(current_user: dict = Depends(get_current_user)):
 @router.post("/orgs")
 async def create_org(body: OrgBody, current_user: dict = Depends(get_current_user)):
     db = get_db()
-    org = {"name": body.name, "owner_id": current_user["id"], "created_at": utcnow()}
+    org = {"name": body.name, "owner_id": current_user["id"], "created_at": utcnow(),
+           "plan": "free", "credits": 200}
     res = await db.organizations.insert_one(org)
     oid = str(res.inserted_id)
     await db.memberships.insert_one({"org_id": oid, "user_id": current_user["id"], "role": "owner",

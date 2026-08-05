@@ -8,6 +8,10 @@ import Register from "@/pages/Register";
 import AuthCallback from "@/pages/AuthCallback";
 import DashboardLayout from "@/pages/DashboardLayout";
 import Overview from "@/pages/Overview";
+import Chat from "@/pages/Chat";
+import Create from "@/pages/Create";
+import Creations from "@/pages/Creations";
+import Admin from "@/pages/Admin";
 import Organization from "@/pages/Organization";
 import ApiKeys from "@/pages/ApiKeys";
 import Projects from "@/pages/Projects";
@@ -42,6 +46,10 @@ function AppRouter() {
       <Route path="/register" element={<Guest><Register /></Guest>} />
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
         <Route index element={<Overview />} />
+        <Route path="chat" element={<Chat />} />
+        <Route path="create" element={<Create />} />
+        <Route path="creations" element={<Creations />} />
+        <Route path="admin" element={<Admin />} />
         <Route path="organization" element={<Organization />} />
         <Route path="api-keys" element={<ApiKeys />} />
         <Route path="projects" element={<Projects />} />
