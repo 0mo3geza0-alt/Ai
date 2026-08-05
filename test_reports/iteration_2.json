@@ -1,0 +1,29 @@
+{
+  "summary": "Re-test after 401 bug fix (Bearer token via localStorage instead of httpOnly cookie only). Confirmed the fix works end-to-end: backend /api/auth/register and /api/auth/login return {user, token}; get_current_user accepts Authorization: Bearer <token>; frontend AppContext stores it in localStorage and injects it into axios defaults. Backend pytest suite: 19 passed, 1 skipped. Frontend UI: registered a fresh user, ran chat (real AI reply '8' for 5+3), text (real prose), image (real data:image/... 543KB), history (populated), reload persists session, upgrade to Pro sets credits=10000, language switcher rtl<->ltr. ZERO 401 responses observed on any authenticated /api/* call during the entire UI run. Also confirmed via Bearer-only python client (no cookies) that all AI endpoints work.",
+  "ai_feature_verdicts": [
+    "chat send - pass - Bearer auth, real reply '8' to 5+3 via gpt-5.6-terra, no 401",
+    "text generate - pass - Bearer auth, 212-char result, no 401",
+    "image generate - pass - Bearer auth, data:image/... 543307 chars via gemini-3.1-flash-image-preview, no 401"
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/ai_platform_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "get_current_user correctly falls back cookie -> Authorization: Bearer <token>. Good.",
+    "Login/register include the access token in the JSON body AND set httpOnly cookies (defense-in-depth for both same-origin and iframe scenarios). Good.",
+    "AppContext reads the token from localStorage at module load and sets axios default Authorization header before any request fires, so /auth/me on refresh works. Good.",
+    "Minor: axios.defaults.withCredentials=true is still set; harmless but no longer strictly required for auth to work. Can be removed if desired."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: admin@aiplatform.com / admin12345. Ephemeral registered users this run: uitest_1785929279@example.com, beartest_1785929237@example.com (password test1234).",
+  "seed_data_creation": "Two fresh users created; each ran 1 chat + 1 text + 1 image op; one upgraded to Pro.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bearer-token auth is fully working. No 401 issues remain. Backend + Frontend both green. If further iteration is needed, focus on edge cases (token expiry, cross-tab logout) rather than base auth.",
+  "rca of the issue": "Original bug: inside the iframe preview, browsers block third-party cookies, so httpOnly access_token cookie was never sent -> get_current_user raised 401 on chat/text/image. Fix: return access token in login/register JSON body; frontend stores it in localStorage and sets axios Authorization: Bearer default; backend get_current_user already accepts Bearer header. Verified: 0 x 401 across full UI + Bearer-only python flow."
+}
