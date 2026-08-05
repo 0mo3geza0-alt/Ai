@@ -35,9 +35,18 @@ Build a production-grade Autonomous AI Agent Platform following a 15-phase roadm
 - Artifacts (text/code) per project.
 - Frontend: DashboardLayout (sidebar + org switcher), Overview, Projects, ProjectDetail (upload/versions/download/artifacts), Organization (members/teams), ApiKeys, Settings.
 
-## Remaining (phase by phase — see ROADMAP.md)
-- P0 next: **Phase 4 — Tool Framework** (Plugin SDK + sandboxed Python/Terminal/Browser/Git/REST/DB tools + registry)
-- Then: 5 Memory → 6 Planning → 7 Multi-Agent → 8 Browser → 9 LLM Gateway → 10 Frontend → 11 Infra → 12 Security → 13 Testing → 14 Production.
+### Phase 4+ — AI Creation Platform (Nexus) (2026-08-05) ✅ verified (backend 17/17, frontend 100%)
+- **Model Gateway** (`llm/gateway.py`): OpenAI/Anthropic/Gemini via Emergent key with automatic fallback chain; `/api/models` lists providers/voices.
+- **AI Chat**: org-scoped saved sessions + history/context memory, credit-metered.
+- **AI Document Generator**: report/presentation/article (markdown).
+- **AI Coding Agent**: language-specific code gen, optional save into a project as an artifact.
+- **AI Image Studio**: Gemini Nano Banana, stored in object storage, served via `/creations/{id}/file`.
+- **AI Audio/Voiceover**: OpenAI TTS (9 voices), mp3 stored + served.
+- **Creations history** + **per-org Credits/Usage** (chat=1, doc=1, code=2, image=5, audio=3; free=200, pro=10000) + mock **upgrade**.
+- **Admin panel** (`admin_api.py`): platform stats + users (global-admin only).
+- Frontend: Chat, Create Studio (tabs: Document/Code/Image/Audio), Creations gallery, Admin, sidebar credits badge + org switcher.
+- Fix applied: idempotent admin seed (role/org/membership/default_org_id); per-request image session id.
 
-## Note on expanded vision (2026-08-05)
-User later described a broader "AI Creation Platform" (websites/apps/images/video/audio/docs/coding/research/automation/plugins/agent-builder/model-gateway/billing). This is a superset that maps onto the existing phased roadmap. Env constraints: Next.js→CRA React, Celery/Redis/Postgres/Qdrant/K8s→Mongo + self-host artifacts. Awaiting user's pick of next runnable milestone.
+## Env-adapted / deferred (honest status)
+- Next.js→CRA React; Celery/Redis→async + Mongo; Postgres→Mongo; Qdrant→(future) Mongo vector; K8s/Helm→artifacts in /app/infra.
+- **Not built (need external keys / not runnable here):** real Video & Music generation (need fal.ai etc.), voice-cloning (ElevenLabs), Stripe billing (credits are in-app), live browser-automation module, full plugin marketplace, real K8s deploy. Chat is non-streaming (reliable) rather than SSE.

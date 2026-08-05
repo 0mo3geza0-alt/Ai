@@ -1,4 +1,5 @@
 import os
+import uuid
 import base64
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAITextToSpeech
@@ -44,7 +45,7 @@ async def generate_text(session_id: str, system: str, prompt: str,
 
 
 async def generate_image(prompt: str):
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id="img", system_message="You are an AI image generator.")
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"img-{uuid.uuid4().hex}", system_message="You are an AI image generator.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
     _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
     if not images:
