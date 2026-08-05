@@ -1,5 +1,5 @@
 {
-  "summary": "Iteration 6 — Verified the three new/updated features requested: (A) REAL token-level SSE streaming in AI Chat, (B) public /gallery, (C) /backoffice admin panel with full user & org control. All three passed on the live public URL (https://ai-creation-hub-60.preview.emergentagent.com). Backend endpoints spot-checked via curl (public gallery 200, admin login 200). Regression flows were already validated in iteration_5.",
+  "summary": "Iteration 6 — Verified the three new/updated features requested: (A) REAL token-level SSE streaming in AI Chat, (B) public /gallery, (C) /backoffice admin panel with full user & org control. All three passed on the live public URL (https://autonomous-nexus-14.preview.emergentagent.com). Backend endpoints spot-checked via curl (public gallery 200, admin login 200). Regression flows were already validated in iteration_5.",
   "verified_flows": {
     "A_streaming_chat": {
       "status": "PASS - real token-level streaming",
