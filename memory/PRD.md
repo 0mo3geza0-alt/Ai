@@ -102,5 +102,11 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - Pytest: `/app/backend/tests/test_admin_panel.py` (13/13).
 - Note: deleting a user does not cascade-delete their auto-created org (informational).
 
+## Phase 13 — Admin panel v2 (2026-06 update) ✅ verified (backend 6/6 new + 13/13 regression, frontend 100%)
+- **Delete cleanup (cascade)**: `admin_api.delete_user` now removes the user's owned orgs + all data scoped to them (creations, projects, artifacts, chat, api_keys, agents, memories, teams, payment_transactions) and the user's own footprint (memberships, sessions, creations, keys). Returns `orgs_removed`.
+- **Admin activity log**: `admin_activity` collection + `_log()` helper. Every suspend/reactivate, role change, org credit/plan update, grant-all, delete, and monthly-reset is recorded (actor_email, action, target_label, detail, created_at). `GET /api/admin/activity` (last 300, newest first). UI: new **Activity** tab.
+- **Auto monthly reset**: `billing/monthly_reset.py` — `apply_monthly_reset(force)` sets each org's credits to `PLAN_CREDITS[plan]` (free 200 / pro 10k / business 50k) + `last_reset_month`. Startup backfills current month (no wipe on deploy) then hourly loop refills on calendar rollover. Manual trigger `POST /api/admin/credits/monthly-reset` + **"Refill to plan"** button in the Orgs tab.
+- Pytest: `/app/backend/tests/test_admin_v2.py` (6/6).
+
 ## Ownership & billing model (clarified to user, 2026-06)
 - Owner owns 100% of the code/IP. Owner pays Emergent via Universal Key for all real generations (image/video/voice cost real money — in-app "credits" are just an owner-controlled meter). End-users pay the owner via Stripe.
