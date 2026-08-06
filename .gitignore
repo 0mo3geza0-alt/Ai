@@ -88,3 +88,6 @@ project.zip
 credentials.json
 *.key
 .credentials
+
+# Local secrets doc (never commit)
+ENV_KEYS.md
