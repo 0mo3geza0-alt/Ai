@@ -258,7 +258,18 @@ async def generate_audio(text: str, voice: str = "alloy", model: str = TTS_MODEL
         speed = 1.0
     speed = max(0.25, min(4.0, speed))
     tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
-    return await tts.generate_speech(text=text[:4096], model=model, voice=voice, response_format="mp3", speed=speed)
+    # Try the requested (HD) model first; fall back to the faster standard model so a live
+    # voice turn is (almost) never returned without audio.
+    chain = [model] + [m for m in ("tts-1-hd", "tts-1") if m != model]
+    last_err = None
+    for mdl in chain:
+        try:
+            return await tts.generate_speech(text=text[:4096], model=mdl, voice=voice,
+                                             response_format="mp3", speed=speed)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            logger.error("TTS %s failed, trying next: %s", mdl, e)
+    raise RuntimeError(f"All TTS models failed: {last_err}")
 
 
 # ---------------------------------------------------------------- fal.ai (Universal Key: queue inference only)

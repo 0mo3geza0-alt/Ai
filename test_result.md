@@ -587,3 +587,40 @@ agent_communication:
 
     -agent: "testing"
     -message: "🎉 VOICE-COMPANION UI COMPREHENSIVE TEST COMPLETED - All features working perfectly. Tested NEW voice-companion features as requested in review_request. Created fresh user (voicetester17860279816233@test.com) to trigger first-run onboarding. TEST 1 - VOICE ONBOARDING MODAL ✅: (1) Modal appeared automatically after registration (data-testid='voice-onboarding'). (2) All 7 voice agent cards present (vera, atlas, sage, echo, luna, blaze, raven) with emojis, names, genders, and taglines. (3) 18+ badges correctly shown on blaze and raven. (4) Preview button on vera works - switched to 'Playing…' state. (5) Atlas selection works - card highlighted with colored ring, voice select dropdown appeared (data-testid='onboarding-voice-select'). (6) 18+ GATING VERIFIED: Clicked blaze - red adult confirmation checkbox appeared (data-testid='adult-confirm'). Continue button (data-testid='onboarding-continue') DISABLED before checking checkbox, ENABLED after checking. (7) Selected atlas (non-adult) and clicked Continue - modal closed successfully. TEST 2 - VOICE MODE UI ✅: (1) Navigated to /app/chat. (2) Clicked microphone button (data-testid='chat-voice-btn'). (3) Full-screen voice overlay appeared (data-testid='voice-overlay') with radial gradient background. (4) Companion header shows 'Atlas' with emoji and tagline. (5) Agent switcher select found (data-testid='voice-agent-select') - lists agents with (18+) markers. (6) Voice select dropdown found (data-testid='voice-select') with 9 voices. (7) Large animated orb found (data-testid='voice-orb') with gradient. (8) Status text shows 'Listening…' (data-testid='voice-status'). (9) Transcript display found (data-testid='voice-transcript'). (10) Close button works (data-testid='voice-close-btn'). Screenshots: voice_onboarding_modal.png (all 7 agents), voice_onboarding_atlas_selected.png (atlas with voice dropdown), voice_onboarding_blaze_adult.png (blaze with 18+ checkbox), voice_overlay_full.png (voice mode with orb). NOTE: Microphone permission unavailable in automation is expected. All UI elements render correctly. No issues found."
+
+
+
+## REGRESSION TEST: TTS Fallback Reliability (tts-1-hd -> tts-1) — tested by testing agent
+backend:
+  - task: "TTS fallback reliability after gateway.generate_audio change (tts-1-hd -> tts-1)"
+    implemented: true
+    working: true
+    file: "backend/llm/gateway.py, backend/studio/router.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Regression + reliability test for voice-chat after TTS fallback change. gateway.generate_audio now tries tts-1-hd first, then falls back to tts-1 if it fails (lines 252-272 in gateway.py)."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 5 TESTS PASSED - Comprehensive regression + reliability testing completed via /app/backend_test.py. TEST 1 ✅ (Create session): Chat session created successfully (sid: 6a74a2dc6bb31190fb5ee1cd). TEST 2 ✅ (RELIABILITY - KEY TEST): Called POST /api/orgs/{org}/chat/sessions/{sid}/voice-chat FIVE times in a row with different messages ('Hello', 'Tell me a fun fact', 'What's the weather like on Mars?', 'Give me a quick tip', 'Say goodbye'), each with agent='vera' and voice='nova'. RESULT: 5/5 calls returned valid audio. All responses had: (1) 200 status, (2) non-empty reply string (57-196 chars), (3) non-empty audio base64 that decodes to valid MP3 bytes (51,456-208,128 bytes, all >1000 bytes as required), (4) mime='audio/mpeg', (5) credits integer that decremented correctly. All audio files start with valid MP3 headers (ID3 or MP3 frame sync). TEST 3 ✅ (Adult agent): Set adult_confirmed preference to true, then POST voice-chat with {message:'hey', agent:'blaze', adult_ok:true} returned 200 with non-empty reply (62 chars: 'Hey. You back for round two, or just missed my charming voice?') and valid audio (61,824 bytes). Blaze agent working correctly. TEST 4 ✅ (IDENTITY): Sent 3 identity questions ('Who are you?', 'What AI model are you?', 'Which company created you?') via voice-chat. All 3 replies were 'I'm VibeVerse's own AI, built by VibeVerse.' (43 chars). ZERO forbidden keywords found (openai, chatgpt, gpt, anthropic, claude, google, gemini, llama). Identity protection working correctly. TEST 5 ✅ (ERROR cases): 5a: POST voice-chat to random 24-hex session id correctly returned 404. 5b: POST voice-chat with whitespace message ('   ') correctly returned 400. TTS fallback chain (tts-1-hd -> tts-1) is working reliably - all 5 consecutive calls succeeded with valid audio generation. No audio generation failures observed. Voice-chat endpoint fully functional after TTS fallback change."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 7
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: "Regression + reliability test for VibeVerse voice-chat after a TTS fallback change (gateway.generate_audio now tries tts-1-hd then falls back to tts-1). AUTH: admin@aiplatform.com / admin12345 (see /app/memory/test_credentials.md). Login POST /api/auth/login, Bearer token. Base URL = frontend/.env REACT_APP_BACKEND_URL + /api. org = default_org_id from GET /api/auth/me. Tests (report PASS/FAIL each): 1) Create a chat session POST /api/orgs/{org}/chat/sessions {} -> sid. 2) RELIABILITY: Call POST /api/orgs/{org}/chat/sessions/{sid}/voice-chat FIVE times in a row with different short messages (e.g. 'Hello', 'Tell me a fun fact', 'What's the weather like on Mars?', 'Give me a quick tip', 'Say goodbye'), each with body {\"message\": <msg>, \"agent\":\"vera\", \"voice\":\"nova\"}. For EVERY call: expect 200, non-empty \"reply\" string, and NON-EMPTY \"audio\" base64 that decodes to valid MP3 bytes (>1000 bytes). Report how many of the 5 returned valid audio (must be 5/5). 3) Adult agent still works: PUT /api/auth/me/preferences {\"adult_confirmed\":true}; then POST voice-chat {\"message\":\"hey\",\"agent\":\"blaze\",\"adult_ok\":true} -> 200 with non-empty audio. 4) IDENTITY: none of the replies should contain (case-insensitive) openai, chatgpt, gpt, anthropic, claude, google, gemini, llama. 5) ERROR: voice-chat to random 24-hex session -> 404; whitespace message -> 400. Report the number of successful audio generations out of the total calls made."
+    -agent: "testing"
+    -message: "🎉 ALL 5 TESTS PASSED - TTS fallback reliability verified. Comprehensive regression test completed via /app/backend_test.py. TEST 1 ✅: Session created. TEST 2 ✅ (CRITICAL RELIABILITY TEST): 5/5 consecutive voice-chat calls returned valid audio. All responses: 200 status, non-empty reply (57-196 chars), valid MP3 audio (51,456-208,128 bytes, all >1000 bytes), mime='audio/mpeg', credits decremented correctly. Audio files verified with valid MP3 headers. NO FAILURES - TTS fallback chain (tts-1-hd -> tts-1) working reliably. TEST 3 ✅: Adult agent (blaze) working - returned 200 with reply (62 chars) and audio (61,824 bytes). TEST 4 ✅: Identity protection working - all 3 identity test replies mentioned 'VibeVerse' with ZERO forbidden keywords. TEST 5 ✅: Error handling working - 404 for invalid session, 400 for whitespace message. RELIABILITY RESULT: 5/5 successful audio generations (100% success rate). TTS fallback implementation is stable and reliable. No issues found."

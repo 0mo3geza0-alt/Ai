@@ -163,6 +163,7 @@ export default function Chat() {
   const [vStatus, setVStatus] = useState("idle"); // idle | listening | thinking | speaking
   const [vTranscript, setVTranscript] = useState("");
   const [voice, setVoice] = useState("nova");
+  const [tapToHear, setTapToHear] = useState(false);
   const [agents, setAgents] = useState([]);
   const [companion, setCompanion] = useState(null);
   const recogRef = useRef(null);
@@ -293,13 +294,33 @@ export default function Chat() {
   };
 
   // ---------------- Live voice conversation ----------------
-  const stopAudio = () => { try { audioRef.current?.pause(); } catch { /* noop */ } audioRef.current = null; };
+  // A tiny silent clip used to "unlock" audio playback inside the user's click gesture,
+  // so the assistant's replies can auto-play afterwards (browser autoplay policy).
+  const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+  const getAudioEl = () => {
+    if (!audioRef.current) { audioRef.current = new Audio(); audioRef.current.preload = "auto"; }
+    return audioRef.current;
+  };
+
+  const unlockAudio = () => {
+    const el = getAudioEl();
+    try {
+      el.src = SILENT_WAV; el.muted = true;
+      const p = el.play();
+      if (p?.catch) p.catch(() => {});
+      setTimeout(() => { try { el.pause(); el.muted = false; } catch { /* noop */ } }, 30);
+    } catch { /* noop */ }
+  };
+
+  const stopAudio = () => { try { audioRef.current?.pause(); } catch { /* noop */ } };
 
   const stopVoiceMode = () => {
     voiceOpenRef.current = false;
     setVoiceOpen(false);
     setVStatus("idle");
     setVTranscript("");
+    setTapToHear(false);
     try { recogRef.current?.abort?.(); } catch { /* noop */ }
     recogRef.current = null;
     stopAudio();
@@ -314,6 +335,7 @@ export default function Chat() {
     rec.interimResults = true;
     rec.continuous = false;
     recogRef.current = rec;
+    setTapToHear(false);
     setVTranscript("");
     setVStatus("listening");
     let finalText = "";
@@ -342,6 +364,26 @@ export default function Chat() {
 
   const vStatusIsListening = () => recogRef.current !== null;
 
+  // Speak a reply through the single unlocked audio element (reliable auto-play);
+  // if the browser still blocks it, surface a "tap to hear" button so audio is never lost.
+  const speak = (b64, mime) => {
+    const el = getAudioEl();
+    el.muted = false;
+    el.onended = () => { setTapToHear(false); if (voiceOpenRef.current) listen(); else setVStatus("idle"); };
+    el.onerror = () => { if (voiceOpenRef.current) listen(); };
+    el.src = `data:${mime || "audio/mpeg"};base64,${b64}`;
+    setVStatus("speaking");
+    const p = el.play();
+    if (p?.catch) p.catch(() => { setTapToHear(true); setVStatus("speaking"); });
+  };
+
+  const playPending = () => {
+    const el = getAudioEl();
+    setTapToHear(false);
+    const p = el.play();
+    if (p?.catch) p.catch(() => { if (voiceOpenRef.current) listen(); });
+  };
+
   const handleVoiceTurn = async (said) => {
     setVStatus("thinking");
     setVTranscript(said);
@@ -359,14 +401,10 @@ export default function Chat() {
       refreshUsage?.();
       loadSessions();
       if (data.audio && voiceOpenRef.current) {
-        setVStatus("speaking");
         stopAudio();
-        const audio = new Audio(`data:${data.mime || "audio/mpeg"};base64,${data.audio}`);
-        audioRef.current = audio;
-        audio.onended = () => { if (voiceOpenRef.current) listen(); else setVStatus("idle"); };
-        audio.onerror = () => { if (voiceOpenRef.current) listen(); };
-        audio.play().catch(() => { if (voiceOpenRef.current) listen(); });
+        speak(data.audio, data.mime);
       } else if (voiceOpenRef.current) {
+        if (!data.audio) toast.error("Voice was unavailable for that reply — showing text.");
         listen();
       }
     } catch (e) {
@@ -376,19 +414,22 @@ export default function Chat() {
     }
   };
 
-  // Tap the orb to interrupt the assistant while it's speaking and start listening immediately (like ChatGPT voice).
+  // Tap the orb to interrupt the assistant while it's speaking and start listening immediately (like a call).
   const interrupt = () => {
-    if (vStatus === "speaking") { stopAudio(); listen(); }
+    if (tapToHear) { playPending(); return; }
+    if (vStatus === "speaking") { stopAudio(); setTapToHear(false); listen(); }
     else if (vStatus === "idle") { listen(); }
   };
 
   const startVoiceMode = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { toast.error("Voice mode works best on Chrome or Edge browsers."); return; }
+    unlockAudio();
     voiceOpenRef.current = true;
     setVoiceOpen(true);
     setVStatus("idle");
-    setTimeout(() => listen(), 300);
+    setTapToHear(false);
+    setTimeout(() => listen(), 350);
   };
 
   useEffect(() => () => stopVoiceMode(), []); // eslint-disable-line
@@ -552,11 +593,13 @@ export default function Chat() {
           {/* Status + live captions */}
           <div className="flex flex-col items-center px-6 w-full max-w-lg">
             <p className="text-lg font-medium text-white mb-2" data-testid="voice-status">
-              {listening ? "Listening…" : thinking ? "Thinking…" : speaking ? "Speaking — tap to interrupt" : "Tap the orb to talk"}
+              {tapToHear ? "Tap to hear the reply" : listening ? "Listening…" : thinking ? "Thinking…" : speaking ? "Speaking — tap to interrupt" : "Tap the orb to talk"}
             </p>
             <p className="text-sm text-[#B4C0D3] text-center min-h-[44px] leading-relaxed" data-testid="voice-transcript">{vTranscript}</p>
             <div className="flex items-center gap-3 mt-6">
-              {vStatus === "idle" ? (
+              {tapToHear ? (
+                <Button data-testid="voice-tap-hear-btn" onClick={playPending} className="rounded-full h-14 px-7 ai-gradient-bg text-white border-0"><Volume2 className="w-5 h-5 me-2" /> Tap to hear reply</Button>
+              ) : vStatus === "idle" ? (
                 <Button data-testid="voice-listen-btn" onClick={() => listen()} className="rounded-full h-14 px-7 ai-gradient-bg text-white border-0"><Mic className="w-5 h-5 me-2" /> Start talking</Button>
               ) : (
                 <Button data-testid="voice-stop-btn" onClick={stopVoiceMode} variant="outline" className="rounded-full h-14 px-7 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20"><PhoneOff className="w-5 h-5 me-2" /> End conversation</Button>
