@@ -153,6 +153,37 @@ def _new_chat(session_id: str, system: str, provider: str, model: str) -> LlmCha
     return chat
 
 
+# Global concurrency guard: the Emergent LLM key plan allows only ONE in-flight
+# request at a time. Every model call funnels through this semaphore so we never
+# trip the provider's CONCURRENCY_REQUEST_LIMIT (429). On a transient 429 we back
+# off and retry a few times instead of failing the whole request.
+_LLM_SEM = asyncio.Semaphore(1)
+
+
+def _is_concurrency_error(e: Exception) -> bool:
+    m = str(e).lower()
+    return ("concurren" in m or "concurrency_request_limit" in m
+            or "rate limit" in m or "ratelimit" in m or "429" in m
+            or "too many requests" in m)
+
+
+async def _send(chat: LlmChat, message: UserMessage, retries: int = 5) -> str:
+    """Serialized, concurrency-safe send with backoff retry on 429."""
+    delay = 2.0
+    last = None
+    for _ in range(retries):
+        async with _LLM_SEM:
+            try:
+                return await chat.send_message(message)
+            except Exception as e:
+                last = e
+                if not _is_concurrency_error(e):
+                    raise
+        await asyncio.sleep(delay)
+        delay = min(delay * 1.7, 12.0)
+    raise last
+
+
 async def generate_text(session_id: str, system: str, prompt: str,
                         provider: str = None, model: str = None, history: str = "") -> str:
     provider = provider or DEFAULT_TEXT[0]
@@ -163,7 +194,7 @@ async def generate_text(session_id: str, system: str, prompt: str,
     for prov, mod in chain:
         try:
             chat = _new_chat(session_id, system, prov, mod)
-            return await chat.send_message(UserMessage(text=full))
+            return await _send(chat, UserMessage(text=full))
         except Exception as e:
             last_err = e
             logger.error("LLM %s/%s failed, trying fallback: %s", prov, mod, e)
@@ -214,34 +245,56 @@ _SYNTH_SYSTEM = (
 async def _council_member(session_id: str, system: str, text: str, prov: str, mod: str):
     try:
         chat = _new_chat(f"{session_id}-{prov}", system, prov, mod)
-        return await chat.send_message(UserMessage(text=text))
+        return await _send(chat, UserMessage(text=text))
     except Exception as e:
         logger.error("Nexus council %s/%s failed: %s", prov, mod, e)
         return None
 
 
 async def generate_council(session_id: str, system: str, prompt: str, history: str = "") -> str:
-    """Query the 3-model council in parallel, then synthesize the best answer."""
+    """Query the 3-model council SEQUENTIALLY (the LLM plan allows only one
+    in-flight request), then synthesize the best answer.
+
+    A wall-clock time budget keeps the whole operation safely under the ~100s
+    edge/proxy timeout: we stop consulting more experts once the budget is spent
+    and only synthesize if there is still time, otherwise we return the best
+    single draft we already have."""
     full = (history + "\n" + prompt) if history else prompt
-    drafts = await asyncio.gather(
-        *[_council_member(session_id, system, full, p, m) for p, m in COUNCIL]
-    )
+    budget = 85.0            # total seconds we allow before returning
+    synth_reserve = 25.0     # seconds we keep aside to run the synthesizer
+    started = time.time()
+
+    def elapsed():
+        return time.time() - started
+
+    drafts = []
+    for p, m in COUNCIL:
+        if drafts and elapsed() > (budget - synth_reserve):
+            break  # enough material gathered; leave room to synthesize / return
+        drafts.append(await _council_member(session_id, system, full, p, m))
+
     good = [d for d in drafts if d and d.strip()]
     if not good:
         # everything failed -> fall back to the normal single-model path
         return await generate_text(session_id, system, prompt, history=history)
     if len(good) == 1:
         return good[0]
+
+    # Pick the most complete draft as the safe fallback.
+    best = max(good, key=len)
+    if elapsed() > (budget - synth_reserve):
+        return best  # no time left to synthesize -> return the strongest draft
+
     labeled = "\n\n".join(f"[Expert draft {i + 1}]\n{d}" for i, d in enumerate(good))
     synth_input = (f"USER REQUEST:\n{prompt}\n\nEXPERT DRAFTS TO MERGE:\n{labeled}\n\n"
                    "Now write the single best final answer.")
     for prov, mod in COUNCIL:  # prefer Claude, then GPT, then Gemini as synthesizer
         try:
             chat = _new_chat(f"{session_id}-synth", _SYNTH_SYSTEM, prov, mod)
-            return await chat.send_message(UserMessage(text=synth_input))
+            return await _send(chat, UserMessage(text=synth_input))
         except Exception as e:
             logger.error("Nexus synth %s/%s failed: %s", prov, mod, e)
-    return good[0]
+    return best
 
 
 async def stream_text(session_id: str, system: str, prompt: str,
@@ -251,9 +304,10 @@ async def stream_text(session_id: str, system: str, prompt: str,
     model = model or DEFAULT_TEXT[1]
     full = (history + "\n" + prompt) if history else prompt
     chat = _new_chat(session_id, system, provider, model)
-    async for event in chat.stream_message(UserMessage(text=full)):
-        if isinstance(event, TextDelta) and event.content:
-            yield event.content
+    async with _LLM_SEM:
+        async for event in chat.stream_message(UserMessage(text=full)):
+            if isinstance(event, TextDelta) and event.content:
+                yield event.content
 
 
 # ---------------------------------------------------------------- intent routing (unified chat)
@@ -333,7 +387,8 @@ async def edit_image(prompt: str, image_b64: str):
     """Edit an existing image with nano-banana using the source image as reference."""
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"imgedit-{uuid.uuid4().hex}", system_message="You are an AI image editor.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
-    _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt, file_contents=[ImageContent(image_base64=image_b64)]))
+    async with _LLM_SEM:
+        _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt, file_contents=[ImageContent(image_base64=image_b64)]))
     if not images:
         raise RuntimeError("No image generated")
     img = images[0]
@@ -349,7 +404,7 @@ async def describe_media(prompt: str, image_b64: str = None, file_path: str = No
         contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
     chat = _new_chat(f"desc-{uuid.uuid4().hex}", "You are a helpful multimodal assistant. Analyze the attachment and respond in the user's language.", "gemini", "gemini-3-flash-preview")
     msg = UserMessage(text=prompt, file_contents=contents) if contents else UserMessage(text=prompt)
-    return await chat.send_message(msg)
+    return await _send(chat, msg)
 
 
 async def stream_chat(session_id: str, system: str, prompt: str, history: str = "",
@@ -365,15 +420,17 @@ async def stream_chat(session_id: str, system: str, prompt: str, history: str = 
     if file_path:
         contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
     msg = UserMessage(text=full, file_contents=contents) if contents else UserMessage(text=full)
-    async for event in chat.stream_message(msg):
-        if isinstance(event, TextDelta) and event.content:
-            yield event.content
+    async with _LLM_SEM:
+        async for event in chat.stream_message(msg):
+            if isinstance(event, TextDelta) and event.content:
+                yield event.content
 
 
 async def generate_image(prompt: str):
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"img-{uuid.uuid4().hex}", system_message="You are an AI image generator.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
-    _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
+    async with _LLM_SEM:
+        _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
     if not images:
         raise RuntimeError("No image generated")
     img = images[0]

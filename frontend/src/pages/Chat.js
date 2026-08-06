@@ -280,7 +280,7 @@ export default function Chat() {
     const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
     try {
       if (nexusMode) {
-        patchLast((l) => ({ ...l, content: "🔥 Nexus Pro يستشير Claude + GPT + Gemini للوصول لأفضل إجابة…", _nexus: true }));
+        patchLast((l) => ({ ...l, content: "🔥 Nexus Pro يستشير خبراء VibeVerse المتقدمين للوصول لأفضل إجابة…", _nexus: true }));
         try {
           const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/nexus-pro`, { message: text });
           patchLast(() => ({ role: "assistant", content: data.reply, kind: "nexus", media: null }));
@@ -655,7 +655,7 @@ export default function Chat() {
                   ? "bg-gradient-to-r from-[#6366F1] to-[#A855F7] text-white border-transparent shadow-[0_0_18px_-2px_rgba(168,85,247,0.7)]"
                   : "bg-[#12121C] text-[#A855F7] border-[rgba(168,85,247,0.35)] hover:border-[#A855F7]"
               }`}
-              title={canNexus ? "وكيل خارق يمزج Claude + GPT + Gemini" : "حصري للبريميم"}
+              title={canNexus ? "وكيل خارق يمزج خبراء VibeVerse المتقدمين" : "حصري للبريميم"}
             >
               {canNexus ? <Zap className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
               Nexus Pro

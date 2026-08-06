@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 const ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager", "provocateur"];
-const PROVIDERS = [{ v: "auto", l: "Auto (smart routing)" }, { v: "openai", l: "OpenAI" }, { v: "anthropic", l: "Anthropic" }, { v: "gemini", l: "Gemini" }];
+const PROVIDERS = [{ v: "auto", l: "VibeVerse Auto (توجيه ذكي)" }, { v: "openai", l: "VibeVerse Prime" }, { v: "anthropic", l: "VibeVerse Sage" }, { v: "gemini", l: "VibeVerse Vision" }];
 const COLORS = ["#A855F7", "#4F46E5", "#EC4899", "#10B981", "#F59E0B", "#06B6D4"];
 const EMPTY = { name: "", description: "", role: "assistant", provider: "auto", model: "", system_prompt: "", tools: [], knowledge: "", color: "#A855F7" };
 const CADENCE_OPTS = [{ v: "5min", l: "Every 5 minutes" }, { v: "15min", l: "Every 15 minutes" }, { v: "hourly", l: "Hourly" }, { v: "daily", l: "Daily" }, { v: "weekly", l: "Weekly" }];

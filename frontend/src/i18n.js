@@ -4,7 +4,7 @@ export const translations = {
     brand: "NeuraForge",
     nav: { features: "Features", pricing: "Pricing", login: "Log in", getStarted: "Get started" },
     hero: {
-      badge: "Powered by GPT-5.6 Terra & Nano Banana",
+      badge: "Powered by VibeVerse AI",
       title1: "Every AI tool you need,",
       title2: "in one intelligent workspace",
       subtitle: "Chat, write, and generate stunning images with cutting-edge AI models. Built for creators, teams, and researchers who move fast.",
@@ -76,7 +76,7 @@ export const translations = {
     brand: "نيورافورج",
     nav: { features: "المميزات", pricing: "الباقات", login: "تسجيل الدخول", getStarted: "ابدأ الآن" },
     hero: {
-      badge: "مدعوم بـ GPT-5.6 Terra و Nano Banana",
+      badge: "مدعوم بذكاء VibeVerse",
       title1: "كل أدوات الذكاء الاصطناعي",
       title2: "في مساحة عمل واحدة ذكية",
       subtitle: "تحدّث، اكتب، وولّد صوراً مذهلة بأحدث نماذج الذكاء الاصطناعي. مصمّم للمبدعين والفرق والباحثين الذين يتحركون بسرعة.",
