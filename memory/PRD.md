@@ -22,6 +22,13 @@ Build a production-grade Autonomous AI Agent Platform following a 15-phase roadm
 - Voice/voiceover also still works via unified chat intent (kind='voice') and `/generate/audio` (real TTS via Emergent key).
 - Remaining chosen roadmap for this session: (2) Chat-with-files RAG, (3) Prompt Gallery, (4) Remix, (5) Agent Marketplace + scheduling (scheduling prioritized per user).
 
+### Update (2025-07) — Features 2-5 ✅
+- **Feature 2 Chat with Files**: session-pinned document. POST/DELETE /api/orgs/{org}/chat/sessions/{sid}/document; chat_agent(_stream) fall back to session.pinned_doc when no per-message attachment, grounding answers via Gemini multimodal across turns. Frontend: auto-pins uploaded docs, persistent banner. Backend tested 8/8.
+- **Feature 3 Prompt Gallery**: frontend-only idea gallery modal in Chat (5 categories, tap-to-send). Verified via screenshot.
+- **Feature 4 Remix**: frontend Remix modal in Creations page for image/audio/music/code/document/research — regenerates a tweaked variation via existing generate/* endpoints (no backend change).
+- **Feature 5 Agent Marketplace + Scheduling**: GET /api/agents/marketplace (6 templates), POST /api/orgs/{org}/agents/hire. Autonomous scheduling via agents/scheduler.py asyncio loop (30s tick) started in server startup; POST/DELETE /api/orgs/{org}/agents/{aid}/schedule {cadence in 5min/15min/hourly/daily/weekly}. Runs stored as agent_runs type='scheduled'. Frontend: Marketplace panel + per-agent schedule controls + clock badge. Backend tested 9/9 (auto-run fired in ~20s).
+
+
 
 ### Phase 1 — Foundation (2026-08-05) ✅ verified
 - Core config/logging/errors/db/base-model modules.
