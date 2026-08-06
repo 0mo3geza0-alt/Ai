@@ -1,285 +1,294 @@
 #!/usr/bin/env python3
-"""Backend API test for Agent Conversational (Episodic) Memory feature."""
+"""
+Backend test for UPGRADED web app generation feature.
+Tests the webapp action that produces stunning single-file HTML sites.
+"""
 import requests
-import json
-import sys
+import time
+import re
+import os
 
-# Base URL from frontend/.env
-BASE_URL = "https://1b35aedf-76ce-4c25-b9a8-124de34f8867.preview.emergentagent.com"
-API_BASE = f"{BASE_URL}/api"
+# Get backend URL from environment
+BACKEND_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://1b35aedf-76ce-4c25-b9a8-124de34f8867.preview.emergentagent.com')
+BASE_URL = f"{BACKEND_URL}/api"
 
-# Test credentials from /app/memory/test_credentials.md
-ADMIN_EMAIL = "admin@aiplatform.com"
-ADMIN_PASSWORD = "admin12345"
+# Test credentials
+EMAIL = "admin@aiplatform.com"
+PASSWORD = "admin12345"
 
-def log(msg, level="INFO"):
-    """Print formatted log message."""
-    print(f"[{level}] {msg}")
-
-def test_episodic_memory():
-    """Test the Agent Conversational (Episodic) Memory feature."""
+def test_webapp_generation():
+    """Test the upgraded webapp generation feature end-to-end."""
+    print("=" * 80)
+    print("TESTING UPGRADED WEB APP GENERATION FEATURE")
+    print("=" * 80)
     
     # Step 1: Login
-    log("Step 1: Login with admin credentials")
-    login_url = f"{API_BASE}/auth/login"
-    login_data = {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
-    
-    try:
-        resp = requests.post(login_url, json=login_data, timeout=30)
-        log(f"Login response status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - Login failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        data = resp.json()
-        token = data.get("token")
-        if not token:
-            log("❌ FAIL - No token in login response", "ERROR")
-            return False
-        
-        log(f"✅ PASS - Login successful, token received")
-        
-    except Exception as e:
-        log(f"❌ FAIL - Login request failed: {e}", "ERROR")
+    print("\n[STEP 1] Login to get Bearer token...")
+    login_resp = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": EMAIL, "password": PASSWORD}
+    )
+    print(f"Login status: {login_resp.status_code}")
+    if login_resp.status_code != 200:
+        print(f"❌ FAIL: Login failed with status {login_resp.status_code}")
+        print(f"Response: {login_resp.text}")
         return False
     
-    # Headers for authenticated requests
+    login_data = login_resp.json()
+    token = login_data.get("token") or login_data.get("access_token")
+    if not token:
+        print(f"❌ FAIL: No token in login response")
+        print(f"Response: {login_data}")
+        return False
+    
+    print(f"✅ Login successful, got token: {token[:20]}...")
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Step 2: Get organization ID
-    log("\nStep 2: Get organization ID from /api/auth/me")
-    try:
-        resp = requests.get(f"{API_BASE}/auth/me", headers=headers, timeout=30)
-        log(f"GET /auth/me status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - GET /auth/me failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        user_data = resp.json()
-        org_id = user_data.get("default_org_id")
-        
-        if not org_id:
-            log("❌ FAIL - No default_org_id in user data", "ERROR")
-            log(f"User data: {json.dumps(user_data, indent=2)}", "ERROR")
-            return False
-        
-        log(f"✅ PASS - Organization ID retrieved: {org_id}")
-        
-    except Exception as e:
-        log(f"❌ FAIL - GET /auth/me request failed: {e}", "ERROR")
+    # Step 2: Get org_id
+    print("\n[STEP 2] Get org_id from /api/auth/me...")
+    me_resp = requests.get(f"{BASE_URL}/auth/me", headers=headers)
+    print(f"Auth/me status: {me_resp.status_code}")
+    if me_resp.status_code != 200:
+        print(f"❌ FAIL: /auth/me failed with status {me_resp.status_code}")
+        print(f"Response: {me_resp.text}")
         return False
     
-    # Step 3: Create an agent with memory tool
-    log("\nStep 3: Create an agent with 'memory' tool")
-    agent_data = {
-        "name": "Memo",
-        "role": "assistant",
-        "system_prompt": "You are a helpful assistant. Use provided context/knowledge to answer.",
-        "tools": ["memory"]
+    me_data = me_resp.json()
+    org_id = me_data.get("default_org_id")
+    if not org_id:
+        print(f"❌ FAIL: No default_org_id in /auth/me response")
+        print(f"Response: {me_data}")
+        return False
+    
+    print(f"✅ Got org_id: {org_id}")
+    
+    # Step 3: Create a chat session
+    print("\n[STEP 3] Create a chat session...")
+    session_resp = requests.post(
+        f"{BASE_URL}/orgs/{org_id}/chat/sessions",
+        headers=headers,
+        json={"title": "webapp test"}
+    )
+    print(f"Create session status: {session_resp.status_code}")
+    if session_resp.status_code != 200:
+        print(f"❌ FAIL: Create session failed with status {session_resp.status_code}")
+        print(f"Response: {session_resp.text}")
+        return False
+    
+    session_data = session_resp.json()
+    sid = session_data.get("id")
+    if not sid:
+        print(f"❌ FAIL: No id in session response")
+        print(f"Response: {session_data}")
+        return False
+    
+    print(f"✅ Created session with id: {sid}")
+    
+    # Step 4: Trigger webapp build
+    print("\n[STEP 4] Trigger webapp build...")
+    webapp_prompt = "Build me an immersive 3D landing page for a space travel startup called Nova with an animated starfield hero and smooth scroll animations."
+    
+    # First try the /agent endpoint (which handles webapp generation via intent routing)
+    print(f"Sending message to /agent endpoint: '{webapp_prompt[:60]}...'")
+    agent_resp = requests.post(
+        f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
+        headers=headers,
+        json={"message": webapp_prompt}
+    )
+    print(f"Agent endpoint status: {agent_resp.status_code}")
+    
+    if agent_resp.status_code != 200:
+        print(f"⚠️  /agent endpoint failed with status {agent_resp.status_code}")
+        print(f"Response: {agent_resp.text}")
+        
+        # Try the /send endpoint as mentioned in review request
+        print("\nTrying /send endpoint instead...")
+        send_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/send",
+            headers=headers,
+            json={"message": webapp_prompt}
+        )
+        print(f"Send endpoint status: {send_resp.status_code}")
+        
+        if send_resp.status_code == 422:
+            print(f"Got 422 error, checking field name...")
+            print(f"Response: {send_resp.text}")
+            # The /send endpoint expects "message" field according to ChatSendBody
+        
+        if send_resp.status_code != 200:
+            print(f"❌ FAIL: Both /agent and /send endpoints failed")
+            return False
+        
+        agent_data = send_resp.json()
+    else:
+        agent_data = agent_resp.json()
+    
+    print(f"Response data: {agent_data}")
+    
+    # Check if we got a webapp creation
+    action = agent_data.get("action")
+    media = agent_data.get("media")
+    
+    if not media:
+        print(f"❌ FAIL: No media object in response")
+        print(f"Full response: {agent_data}")
+        return False
+    
+    cid = media.get("cid")
+    status = media.get("status")
+    
+    if not cid:
+        print(f"❌ FAIL: No cid (creation id) in media object")
+        print(f"Media: {media}")
+        return False
+    
+    print(f"✅ Got creation id: {cid}")
+    print(f"   Action: {action}")
+    print(f"   Initial status: {status}")
+    
+    if status != "processing":
+        print(f"⚠️  WARNING: Expected status 'processing', got '{status}'")
+    
+    # Step 5: Poll for completion
+    print("\n[STEP 5] Polling for completion (max 90 seconds)...")
+    max_polls = 30  # 30 polls * 3 seconds = 90 seconds
+    poll_count = 0
+    final_status = None
+    
+    while poll_count < max_polls:
+        poll_count += 1
+        time.sleep(3)
+        
+        status_resp = requests.get(
+            f"{BASE_URL}/orgs/{org_id}/creations/{cid}/status",
+            headers=headers
+        )
+        
+        if status_resp.status_code != 200:
+            print(f"⚠️  Poll {poll_count}: Status check failed with {status_resp.status_code}")
+            continue
+        
+        status_data = status_resp.json()
+        current_status = status_data.get("status")
+        print(f"Poll {poll_count}: status = {current_status}")
+        
+        if current_status == "done":
+            final_status = "done"
+            print(f"✅ Generation completed after {poll_count * 3} seconds")
+            break
+        elif current_status == "failed":
+            final_status = "failed"
+            error = status_data.get("error", "Unknown error")
+            print(f"❌ FAIL: Generation failed with error: {error}")
+            return False
+    
+    if final_status != "done":
+        print(f"❌ FAIL: Generation did not complete within 90 seconds (status: {final_status})")
+        return False
+    
+    # Step 6: Retrieve and verify the generated HTML
+    print("\n[STEP 6] Retrieve and verify generated HTML...")
+    
+    # First try to get HTML from the status response
+    html_content = None
+    
+    # Try getting from creations list
+    creations_resp = requests.get(
+        f"{BASE_URL}/orgs/{org_id}/creations",
+        headers=headers
+    )
+    
+    if creations_resp.status_code == 200:
+        creations = creations_resp.json()
+        for creation in creations:
+            if creation.get("id") == cid:
+                html_content = creation.get("content")
+                break
+    
+    if not html_content:
+        # Try getting the file directly
+        file_resp = requests.get(
+            f"{BASE_URL}/orgs/{org_id}/creations/{cid}/file",
+            headers=headers
+        )
+        if file_resp.status_code == 200:
+            html_content = file_resp.text
+    
+    if not html_content:
+        print(f"❌ FAIL: Could not retrieve HTML content")
+        return False
+    
+    print(f"✅ Retrieved HTML content ({len(html_content)} characters)")
+    print(f"\nFirst 300 characters:")
+    print("-" * 80)
+    print(html_content[:300])
+    print("-" * 80)
+    
+    # Verify HTML structure
+    print("\n[VERIFICATION] Checking HTML quality...")
+    
+    html_lower = html_content.lower()
+    
+    # Check 1: Full HTML document
+    has_doctype = "<!doctype html>" in html_lower or "<html" in html_lower
+    has_closing_html = "</html>" in html_lower
+    
+    print(f"✓ Has DOCTYPE or <html>: {has_doctype}")
+    print(f"✓ Has </html>: {has_closing_html}")
+    
+    if not (has_doctype and has_closing_html):
+        print(f"❌ FAIL: Not a complete HTML document")
+        return False
+    
+    # Check 2: Upgraded quality markers
+    print("\n[VERIFICATION] Checking for upgraded quality markers...")
+    
+    quality_markers = {
+        "three.js": "three" in html_lower,
+        "GSAP": "gsap" in html_lower,
+        "Tailwind CDN": "cdn.tailwindcss.com" in html_lower,
+        "Canvas": "<canvas" in html_lower,
+        "requestAnimationFrame": "requestanimationframe" in html_lower,
+        "Google Fonts": "fonts.googleapis.com" in html_lower,
+        "Keyframe animations": "@keyframes" in html_lower or "scrolltrigger" in html_lower
     }
     
-    try:
-        resp = requests.post(f"{API_BASE}/orgs/{org_id}/agents", 
-                           json=agent_data, headers=headers, timeout=30)
-        log(f"POST /orgs/{org_id}/agents status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - Create agent failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        agent = resp.json()
-        agent_id = agent.get("id")
-        
-        if not agent_id:
-            log("❌ FAIL - No agent id in response", "ERROR")
-            return False
-        
-        log(f"✅ PASS - Agent created with ID: {agent_id}")
-        log(f"Agent details: name={agent.get('name')}, tools={agent.get('tools')}")
-        
-    except Exception as e:
-        log(f"❌ FAIL - Create agent request failed: {e}", "ERROR")
+    found_markers = []
+    for marker, present in quality_markers.items():
+        status_icon = "✅" if present else "❌"
+        print(f"{status_icon} {marker}: {present}")
+        if present:
+            found_markers.append(marker)
+    
+    if not found_markers:
+        print(f"\n❌ FAIL: No upgraded quality markers found!")
+        print(f"Expected at least ONE of: three.js, GSAP, Tailwind CDN, Canvas, requestAnimationFrame, Google Fonts, or keyframe animations")
         return False
     
-    # Step 4: First run - store context
-    log("\nStep 4: First run - store context (name=Ahmed, color=blue)")
-    run1_data = {
-        "input": "Please remember this: my name is Ahmed and my favorite color is blue.",
-        "session_id": "s1"
-    }
+    print(f"\n✅ PASS: Found {len(found_markers)} quality marker(s): {', '.join(found_markers)}")
     
-    try:
-        resp = requests.post(f"{API_BASE}/orgs/{org_id}/agents/{agent_id}/run",
-                           json=run1_data, headers=headers, timeout=60)
-        log(f"POST /orgs/{org_id}/agents/{agent_id}/run (run 1) status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - First run failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        run1_result = resp.json()
-        output1 = run1_result.get("output", "")
-        tools_used1 = run1_result.get("tools_used", [])
-        
-        log(f"✅ PASS - First run completed")
-        log(f"Output: {output1[:200]}..." if len(output1) > 200 else f"Output: {output1}")
-        log(f"Tools used: {tools_used1}")
-        
-    except Exception as e:
-        log(f"❌ FAIL - First run request failed: {e}", "ERROR")
-        return False
+    # Summary
+    print("\n" + "=" * 80)
+    print("TEST SUMMARY")
+    print("=" * 80)
+    print(f"✅ Status: DONE (not failed)")
+    print(f"✅ HTML length: {len(html_content)} characters")
+    print(f"✅ Complete HTML document: Yes")
+    print(f"✅ Quality markers found: {', '.join(found_markers)}")
+    print(f"\nFirst 300 characters of HTML:")
+    print(html_content[:300])
+    print("\n" + "=" * 80)
+    print("🎉 ALL TESTS PASSED - UPGRADED WEBAPP GENERATION WORKING!")
+    print("=" * 80)
     
-    # Step 5: Second run - recall context (CRITICAL TEST)
-    log("\nStep 5: Second run - recall context (verify Ahmed and blue are remembered)")
-    run2_data = {
-        "input": "What is my name and what is my favorite color?",
-        "session_id": "s2"
-    }
-    
-    try:
-        resp = requests.post(f"{API_BASE}/orgs/{org_id}/agents/{agent_id}/run",
-                           json=run2_data, headers=headers, timeout=60)
-        log(f"POST /orgs/{org_id}/agents/{agent_id}/run (run 2) status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - Second run failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        run2_result = resp.json()
-        output2 = run2_result.get("output", "")
-        tools_used2 = run2_result.get("tools_used", [])
-        
-        log(f"✅ PASS - Second run completed")
-        log(f"Output: {output2}")
-        log(f"Tools used: {tools_used2}")
-        
-        # CRITICAL: Verify the agent remembered the context
-        output_lower = output2.lower()
-        has_ahmed = "ahmed" in output_lower
-        has_blue = "blue" in output_lower
-        has_memory_tool = "memory" in tools_used2
-        
-        log("\n=== CRITICAL VERIFICATION ===")
-        log(f"Output mentions 'Ahmed': {has_ahmed}")
-        log(f"Output mentions 'blue': {has_blue}")
-        log(f"'memory' tool was used: {has_memory_tool}")
-        
-        if not has_ahmed:
-            log("❌ FAIL - Agent output does NOT mention 'Ahmed' - episodic memory not working!", "ERROR")
-            return False
-        
-        if not has_blue:
-            log("❌ FAIL - Agent output does NOT mention 'blue' - episodic memory not working!", "ERROR")
-            return False
-        
-        if not has_memory_tool:
-            log("⚠️  WARNING - 'memory' tool not in tools_used, but context was recalled", "WARN")
-        
-        log("✅ PASS - Agent successfully recalled context from previous conversation!")
-        
-    except Exception as e:
-        log(f"❌ FAIL - Second run request failed: {e}", "ERROR")
-        return False
-    
-    # Step 6: Verify conversation memories exist
-    log("\nStep 6: Verify conversation memories in database")
-    try:
-        resp = requests.get(f"{API_BASE}/orgs/{org_id}/memories", 
-                          headers=headers, timeout=30)
-        log(f"GET /orgs/{org_id}/memories status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - GET memories failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        memories = resp.json()
-        log(f"Total memories found: {len(memories)}")
-        
-        # Filter conversation memories
-        conversation_memories = [m for m in memories if m.get("source") == "conversation"]
-        log(f"Conversation memories: {len(conversation_memories)}")
-        
-        if len(conversation_memories) == 0:
-            log("❌ FAIL - No conversation memories found with source='conversation'", "ERROR")
-            return False
-        
-        log(f"✅ PASS - Found {len(conversation_memories)} conversation memory entries")
-        
-        # Log details of conversation memories
-        for i, mem in enumerate(conversation_memories[:3], 1):
-            log(f"  Memory {i}: source={mem.get('source')}, agent_id={mem.get('agent_id')}")
-            log(f"    Text preview: {mem.get('text', '')[:100]}...")
-        
-    except Exception as e:
-        log(f"❌ FAIL - GET memories request failed: {e}", "ERROR")
-        return False
-    
-    # Step 7: Regression test - update agent knowledge should NOT delete conversation memories
-    log("\nStep 7: Regression test - update agent knowledge")
-    update_data = {
-        "name": "Memo",
-        "role": "assistant",
-        "system_prompt": "You are a helpful assistant. Use provided context/knowledge to answer.",
-        "tools": ["memory"],
-        "knowledge": ["Ahmed works at ACME Corp."]
-    }
-    
-    try:
-        resp = requests.patch(f"{API_BASE}/orgs/{org_id}/agents/{agent_id}",
-                            json=update_data, headers=headers, timeout=30)
-        log(f"PATCH /orgs/{org_id}/agents/{agent_id} status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - Update agent failed with status {resp.status_code}", "ERROR")
-            log(f"Response: {resp.text}", "ERROR")
-            return False
-        
-        log("✅ PASS - Agent updated with knowledge")
-        
-        # Verify conversation memories still exist
-        resp = requests.get(f"{API_BASE}/orgs/{org_id}/memories", 
-                          headers=headers, timeout=30)
-        
-        if resp.status_code != 200:
-            log(f"❌ FAIL - GET memories after update failed", "ERROR")
-            return False
-        
-        memories_after = resp.json()
-        conversation_after = [m for m in memories_after if m.get("source") == "conversation"]
-        knowledge_after = [m for m in memories_after if m.get("source") == "agent-knowledge"]
-        
-        log(f"After update - Total memories: {len(memories_after)}")
-        log(f"After update - Conversation memories: {len(conversation_after)}")
-        log(f"After update - Agent-knowledge memories: {len(knowledge_after)}")
-        
-        if len(conversation_after) == 0:
-            log("❌ FAIL - Conversation memories were deleted when updating agent knowledge!", "ERROR")
-            return False
-        
-        if len(knowledge_after) == 0:
-            log("❌ FAIL - No agent-knowledge memories found after update", "ERROR")
-            return False
-        
-        log("✅ PASS - Conversation memories preserved after knowledge update")
-        log("✅ PASS - Agent-knowledge memories created successfully")
-        
-    except Exception as e:
-        log(f"❌ FAIL - Regression test failed: {e}", "ERROR")
-        return False
-    
-    log("\n" + "="*60)
-    log("🎉 ALL TESTS PASSED - Agent Conversational (Episodic) Memory is working!", "SUCCESS")
-    log("="*60)
     return True
 
 if __name__ == "__main__":
-    success = test_episodic_memory()
-    sys.exit(0 if success else 1)
+    try:
+        success = test_webapp_generation()
+        exit(0 if success else 1)
+    except Exception as e:
+        print(f"\n❌ EXCEPTION: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
