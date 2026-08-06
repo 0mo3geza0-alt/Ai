@@ -126,6 +126,8 @@ async def update_preferences(body: dict, current_user: dict = Depends(get_curren
         prefs["voice_agent"] = body.get("voice_agent")
     if "voice" in body:
         prefs["voice"] = body.get("voice")
+    if "dialect" in body:
+        prefs["dialect"] = body.get("dialect")
     if "adult_confirmed" in body:
         prefs["adult_confirmed"] = bool(body.get("adult_confirmed"))
     prefs["onboarded"] = True

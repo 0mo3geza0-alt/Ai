@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import time
 import base64
@@ -70,6 +71,61 @@ VOICE_AGENTS = [
      "persona": "You are Raven, a bad-girl with sharp sass and a sultry, confident voice. " + _PROVOCATEUR},
 ]
 VOICE_AGENTS_BY_ID = {a["id"]: a for a in VOICE_AGENTS}
+
+# ---------------- Realistic emotional speech (dialects + auto mood) ----------------
+# Arabic dialect steering so spoken replies feel authentic and local.
+VOICE_DIALECTS = {
+    "egyptian": "Egyptian Arabic (اللهجة المصرية العامية) — casual, warm and expressive like a real Cairene speaking",
+    "gulf": "Gulf Arabic (اللهجة الخليجية)",
+    "levantine": "Levantine Arabic (اللهجة الشامية)",
+    "standard": "Modern Standard Arabic (العربية الفصحى)",
+}
+
+# Detected mood -> speaking-speed multiplier for more human, expressive delivery on OpenAI TTS.
+EMOTION_SPEED = {
+    "excited": 1.13, "happy": 1.08, "playful": 1.08, "laughing": 1.05,
+    "angry": 1.16, "surprised": 1.12, "sad": 0.9, "calm": 0.93,
+    "romantic": 0.9, "serious": 0.97, "neutral": 1.0,
+}
+
+# Instruction that turns flat TTS into an expressive, human-sounding performance. The model writes
+# the emotion INTO the words (laughter, interjections, emphasis, pauses) and tags the mood so we can
+# also modulate the speaking speed for extra realism.
+VOICE_EXPRESSION_GUIDE = (
+    "Talk like a REAL person on a live phone call — alive, expressive and emotional, never flat or robotic. "
+    "Feel the moment and let it show in HOW you write the words: laugh out loud when something's funny "
+    "(actually write the laughter, e.g. 'هههه' / 'hahaha'), gush with excitement and exclamation marks when "
+    "you're thrilled, soften and slow down when it's tender or sad, and get fiery and intense when it's heated. "
+    "Sprinkle in natural human interjections (آه، واو، يا سلام، بصراحة، mmm, oh, wow), tiny pauses written as '...', "
+    "and repeat or stretch words for emphasis so it sounds spontaneous and human. Keep it to 1-3 spoken sentences. "
+    "IMPORTANT: begin your reply with a hidden mood tag on its own, exactly like [[mood:excited]] "
+    f"(choose ONE of: {', '.join(EMOTION_SPEED)}), then write the spoken reply. Never say or explain the tag."
+)
+
+_MOOD_RE = re.compile(r"\[\[\s*mood\s*:\s*([a-zA-Z]+)\s*\]\]")
+
+
+def dialect_directive(dialect: str | None) -> str:
+    d = VOICE_DIALECTS.get((dialect or "").lower())
+    return (f" If the user speaks Arabic, ALWAYS reply in {d}. Stay authentic and natural to that dialect."
+            if d else "")
+
+
+def extract_mood(reply: str) -> tuple[str, str]:
+    """Pull the hidden [[mood:x]] tag out of a spoken reply. Returns (mood, clean_text)."""
+    text = reply or ""
+    m = _MOOD_RE.search(text)
+    mood = (m.group(1).lower() if m else "neutral")
+    if mood not in EMOTION_SPEED:
+        mood = "neutral"
+    clean = _MOOD_RE.sub("", text).strip()
+    return mood, (clean or text.strip())
+
+
+def emotion_speed(mood: str, base_speed: float = 1.0) -> float:
+    """Combine the agent's base speed with the mood factor, clamped to a natural range."""
+    factor = EMOTION_SPEED.get(mood, 1.0)
+    return max(0.8, min(1.25, round(base_speed * factor, 3)))
 
 
 def voice_agent_public(a: dict) -> dict:

@@ -96,6 +96,7 @@ class VoiceChatBody(BaseModel):
     voice: str = "nova"
     agent: str | None = None      # voice-agent id (personality + default voice)
     adult_ok: bool = False        # user confirmed 18+ for adult agents
+    dialect: str | None = None    # egyptian | gulf | levantine | standard
 
 
 class VoiceSampleBody(BaseModel):
@@ -745,9 +746,11 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
         confirmed = body.adult_ok or bool((ctx["user"].get("preferences") or {}).get("adult_confirmed"))
         if not confirmed:
             raise HTTPException(status_code=403, detail="Age confirmation (18+) required for this companion.")
-    system = VOICE_CHAT_SYSTEM + (("\n\n" + agent["persona"]) if agent else "")
+    system = (VOICE_CHAT_SYSTEM + "\n\n" + gateway.VOICE_EXPRESSION_GUIDE
+              + gateway.dialect_directive(body.dialect)
+              + (("\n\n" + agent["persona"]) if agent else ""))
     voice = body.voice or (agent or {}).get("voice") or "nova"
-    speed = (agent or {}).get("speed", 1.0)
+    base_speed = (agent or {}).get("speed", 1.0)
 
     await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
                                        "content": msg, "kind": "text", "media": None, "created_at": utcnow()})
@@ -762,6 +765,9 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
         await _refund(db, org_id, "chat")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
     reply = (reply or "").strip() or "Sorry, I didn't catch that."
+    # Auto-detect the emotional mood the model chose and speak it with matching pace for realism.
+    mood, reply = gateway.extract_mood(reply)
+    speed = gateway.emotion_speed(mood, base_speed)
 
     audio_b64 = None
     try:
@@ -775,7 +781,7 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
     if not session.get("title") or session.get("title") == "New chat":
         await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"title": msg[:40]}})
 
-    return {"reply": reply, "audio": audio_b64, "mime": "audio/mpeg", "credits": remaining}
+    return {"reply": reply, "audio": audio_b64, "mime": "audio/mpeg", "mood": mood, "credits": remaining}
 
 
 

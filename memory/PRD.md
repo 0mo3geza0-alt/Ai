@@ -141,3 +141,10 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 
 ## Ownership & billing model (clarified to user, 2026-06)
 - Owner owns 100% of the code/IP. Owner pays Emergent via Universal Key for all real generations (image/video/voice cost real money — in-app "credits" are just an owner-controlled meter). End-users pay the owner via Stripe.
+
+## Voice realism — emotions + Arabic dialects (2026-06) ✅ verified (curl 3 dialects/moods + UI smoke)
+- **Constraint found**: OpenAI `gpt-4o-mini-tts` (instruction/emotion-steerable) is NOT available via the Emergent key/proxy — only `tts-1` / `tts-1-hd`. Verified via /v1/models. True human laughter/screaming needs ElevenLabs (user's own free key) — deferred/offered.
+- **Emotion director (auto, no new keys)**: `gateway.VOICE_EXPRESSION_GUIDE` makes the voice reply LLM write emotion INTO the words (written laughter «هههه», interjections, «...» pauses, emphasis) and emit a hidden `[[mood:x]]` tag. `gateway.extract_mood()` strips the tag; `gateway.emotion_speed(mood, base)` modulates TTS speaking speed per mood (excited/angry faster, sad/romantic slower). Endpoint returns `mood`.
+- **Arabic dialects**: `gateway.VOICE_DIALECTS` (egyptian/gulf/levantine/standard) + `dialect_directive()`. `VoiceChatBody.dialect` + persisted in user `preferences.dialect` (auth prefs endpoint). Frontend voice overlay has `voice-dialect-select`; passed on every voice turn.
+- Files: `backend/llm/gateway.py`, `backend/studio/router.py` (voice_chat), `backend/auth/router.py` (prefs), `frontend/src/pages/Chat.js`.
+- Verified live: Egyptian=playful (laughter), Gulf=sad (empathetic/slow), Levantine=excited — all returned valid MP3, tag stripped, dialect authentic.

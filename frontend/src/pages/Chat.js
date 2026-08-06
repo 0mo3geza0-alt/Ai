@@ -22,6 +22,13 @@ const EXT = { image: "png", voice: "mp3", audio: "mp3" };
 
 const VOICE_OPTS = ["nova", "alloy", "ash", "coral", "echo", "fable", "onyx", "sage", "shimmer"];
 
+const DIALECT_OPTS = [
+  { id: "egyptian", label: "🇪🇬 مصري" },
+  { id: "gulf", label: "🇸🇦 خليجي" },
+  { id: "levantine", label: "🇸🇾 شامي" },
+  { id: "standard", label: "🕌 فصحى" },
+];
+
 // ---- Prompt Gallery: ready-made starter ideas grouped by category ----
 const PROMPT_GALLERY = [
   { cat: "Images", icon: ImageIcon, items: [
@@ -163,6 +170,7 @@ export default function Chat() {
   const [vStatus, setVStatus] = useState("idle"); // idle | listening | thinking | speaking
   const [vTranscript, setVTranscript] = useState("");
   const [voice, setVoice] = useState("nova");
+  const [dialect, setDialect] = useState("egyptian");
   const [tapToHear, setTapToHear] = useState(false);
   const [agents, setAgents] = useState([]);
   const [companion, setCompanion] = useState(null);
@@ -174,9 +182,11 @@ export default function Chat() {
   const voiceOpenRef = useRef(false);
   const activeRef = useRef(null);
   const voiceRef = useRef("nova");
+  const dialectRef = useRef("egyptian");
   const companionRef = useRef(null);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { voiceRef.current = voice; }, [voice]);
+  useEffect(() => { dialectRef.current = dialect; }, [dialect]);
   useEffect(() => { companionRef.current = companion; }, [companion]);
 
   // Load selectable voice companions + apply the user's saved preference as default.
@@ -187,6 +197,7 @@ export default function Chat() {
       const prefAgent = user?.preferences?.voice_agent;
       const chosen = list.find((a) => a.id === prefAgent) || list[0] || null;
       if (chosen) { setCompanion(chosen); setVoice(user?.preferences?.voice || chosen.voice); }
+      if (user?.preferences?.dialect) setDialect(user.preferences.dialect);
     }).catch(() => { /* voice mode still works with defaults */ });
   }, []); // eslint-disable-line
 
@@ -460,6 +471,7 @@ export default function Chat() {
       const comp = companionRef.current;
       const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/voice-chat`, {
         message: said, voice: voiceRef.current, agent: comp?.id || null, adult_ok: !!comp?.adult,
+        dialect: dialectRef.current,
       });
       patchLast(() => ({ role: "assistant", content: data.reply, kind: "text", media: null }));
       refreshUsage?.();
@@ -625,6 +637,11 @@ export default function Chat() {
               <select data-testid="voice-select" value={voice} onChange={(e) => setVoice(e.target.value)}
                 className="bg-[#12121C] border border-[rgba(255,255,255,0.14)] text-xs text-[#94A3B8] rounded-lg px-2.5 py-1.5 capitalize focus:outline-none focus:border-[#A855F7]">
                 {VOICE_OPTS.map((v) => <option key={v} value={v} className="capitalize">{v}</option>)}
+              </select>
+              <select data-testid="voice-dialect-select" value={dialect}
+                onChange={(e) => { const d = e.target.value; setDialect(d); api.put("/auth/me/preferences", { dialect: d }).catch(() => {}); }}
+                className="bg-[#12121C] border border-[rgba(255,255,255,0.14)] text-xs text-[#94A3B8] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#A855F7]">
+                {DIALECT_OPTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
               </select>
             </div>
           </div>
