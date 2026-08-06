@@ -11,6 +11,7 @@ import Overview from "@/pages/Overview";
 import Chat from "@/pages/Chat";
 import Creations from "@/pages/Creations";
 import Agents from "@/pages/Agents";
+import Planning from "@/pages/Planning";
 import Memory from "@/pages/Memory";
 import Security from "@/pages/Security";
 import Admin from "@/pages/Admin";
@@ -63,6 +64,7 @@ function AppRouter() {
         <Route path="create" element={<Navigate to="/app/chat" replace />} />
         <Route path="creations" element={<Creations />} />
         <Route path="agents" element={<Agents />} />
+        <Route path="planning" element={<Planning />} />
         <Route path="memory" element={<Memory />} />
         <Route path="security" element={<Security />} />
         <Route path="admin" element={<Admin />} />

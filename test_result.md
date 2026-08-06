@@ -257,3 +257,32 @@ agent_communication:
     -message: "Please test Phases 4/6/8. AUTH: admin@aiplatform.com / admin12345 (in /app/memory/test_credentials.md); login POST /api/auth/login, use Bearer token; org id = default_org_id from /api/auth/me. TESTS: (1) GET /api/tools returns 4 tools. (2) POST /api/orgs/{org}/tools/calc {expression:'2**10 + 5*3'} -> '1039'. (3) POST /api/orgs/{org}/tools/browse {url:'https://example.com'} -> ok=true, non-empty text. (4) POST /api/orgs/{org}/tools/web_search {query:'python programming'} -> results array. (5) Planning: POST /api/orgs/{org}/plan/run {goal:'Research what the Eiffel Tower is and summarize in 3 bullets','max_steps':3} -> 200 with plan[], steps[] (each has output), and non-empty final output; then GET /api/orgs/{org}/plan/runs shows the run. (6) Agent browse tool: create agent tools=['browse'], run with input containing a URL like 'Summarize https://example.com' -> output reflects page + tools_used includes 'browse'. (7) Agent calculator: create agent tools=['calculator'], run with input '15*4+7' -> output includes 67. Report PASS/FAIL per test."
     -agent: "testing"
     -message: "✅ ALL 9 TESTS PASSED - Tool Framework (Phase 4), Planning Engine (Phase 6), and Browser Automation (Phase 8) are fully functional. Created comprehensive test suite in /app/test_new_features.py covering all requested scenarios. Test results: (1) Tool list endpoint working - returns 4 tools. (2a) Calculator valid expression working - correctly computes 2**10+5*3=1039. (2b) Calculator malicious expression safely rejected - no code execution. (3) Browse tool working - fetches and extracts text from URLs. (4) Web search tool working - returns well-formed results array. (5a) Planning Engine working - decomposes goals, executes steps, synthesizes output. (5b) Plan runs list working - returns history including new runs. (6) Agent browse tool integration working - auto-detects URLs and fetches content. (7) Agent calculator tool integration working - auto-detects math expressions and computes results. All features tested with real API calls, proper authentication, and verified response structures. No issues found."
+
+
+## FRONTEND: Planning Engine page + extended agent tools (Phases 4/6/8 UI)
+frontend:
+  - task: "Planning Engine page (/app/planning)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Planning.js, frontend/src/App.js, frontend/src/pages/DashboardLayout.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "New Planning page: goal textarea + max_steps select + Run planner button -> POST /orgs/{oid}/plan/run. Shows collapsible step cards (research/browse/reason with tool badge) + final synthesized result. History drawer via GET /orgs/{oid}/plan/runs (click a past plan to reload it). Added 'Planning' nav item (Workflow icon) in DashboardLayout and route in App.js. Not yet UI-tested (screenshot tool had async login issue)."
+  - task: "Agent builder extended tools (browse + calculator)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Agents.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "AgentForm now has 4 tool checkboxes (web_search, memory, browse, calculator) and agent cards show browse/calc badges. data-testids: agent-tool-browse, agent-tool-calc."
+
+metadata:
+  run_ui: false

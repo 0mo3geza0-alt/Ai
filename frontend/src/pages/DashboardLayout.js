@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert, CreditCard } from "lucide-react";
+import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert, CreditCard, Workflow } from "lucide-react";
 import { useAuth, api } from "@/context/AuthContext";
 import { Logo } from "@/components/shared";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -35,6 +35,7 @@ export default function DashboardLayout() {
     { to: "/app/chat", icon: Sparkles, label: "AI Studio", id: "chat" },
     { to: "/app/creations", icon: Images, label: "Creations", id: "creations" },
     { to: "/app/agents", icon: Bot, label: "AI Agents", id: "agents" },
+    { to: "/app/planning", icon: Workflow, label: "Planning", id: "planning" },
     { to: "/app/memory", icon: Brain, label: "Knowledge", id: "memory" },
     { to: "/app/projects", icon: FolderGit2, label: "Projects", id: "projects" },
     { to: "/app/organization", icon: Building2, label: "Organization", id: "organization" },

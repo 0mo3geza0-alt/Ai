@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Bot, Plus, Play, Trash2, Pencil, Users, Sparkles, Globe, Brain, History, X } from "lucide-react";
+import { Bot, Plus, Play, Trash2, Pencil, Users, Sparkles, Globe, Brain, History, X, Link2, Calculator } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Dots } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -78,9 +78,11 @@ function AgentForm({ open, onOpenChange, initial, onSaved, oid }) {
           </div>
           <div>
             <Label className="text-[#94A3B8]">Tools</Label>
-            <div className="flex gap-4 mt-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
               <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox data-testid="agent-tool-web" checked={f.tools.includes("web_search")} onCheckedChange={() => toggleTool("web_search")} /> <Globe className="w-4 h-4 text-[#A855F7]" /> Web search</label>
               <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox data-testid="agent-tool-memory" checked={f.tools.includes("memory")} onCheckedChange={() => toggleTool("memory")} /> <Brain className="w-4 h-4 text-[#A855F7]" /> Knowledge (RAG)</label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox data-testid="agent-tool-browse" checked={f.tools.includes("browse")} onCheckedChange={() => toggleTool("browse")} /> <Link2 className="w-4 h-4 text-[#A855F7]" /> Browse URL</label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox data-testid="agent-tool-calc" checked={f.tools.includes("calculator")} onCheckedChange={() => toggleTool("calculator")} /> <Calculator className="w-4 h-4 text-[#A855F7]" /> Calculator</label>
             </div>
           </div>
           <div>
@@ -225,6 +227,8 @@ export default function Agents() {
                 <div className="flex flex-wrap gap-1.5 mt-3">
                   {a.tools.includes("web_search") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Globe className="w-3 h-3 me-1 inline" />web</span>}
                   {a.tools.includes("memory") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Brain className="w-3 h-3 me-1 inline" />{a.knowledge_count} facts</span>}
+                  {a.tools.includes("browse") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Link2 className="w-3 h-3 me-1 inline" />browse</span>}
+                  {a.tools.includes("calculator") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Calculator className="w-3 h-3 me-1 inline" />calc</span>}
                 </div>
               </motion.div>
             );
