@@ -103,11 +103,14 @@ async def _seed_admin():
         res = await db.users.insert_one({"email": email, "name": "Admin",
                                          "password_hash": hash_password(password),
                                          "global_role": "admin", "auth_provider": "local",
+                                         "email_verified": True,
                                          "created_at": utcnow()})
         user_id = res.inserted_id
     else:
         user_id = existing["_id"]
         upd = {}
+        if not existing.get("email_verified"):
+            upd["email_verified"] = True
         if not verify_password(password, existing.get("password_hash", "")):
             upd["password_hash"] = hash_password(password)
         if existing.get("global_role") != "admin":

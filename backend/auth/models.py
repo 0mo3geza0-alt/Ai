@@ -13,6 +13,15 @@ class LoginBody(BaseModel):
     password: str
 
 
+class VerifyEmailBody(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=8)
+
+
+class ResendCodeBody(BaseModel):
+    email: EmailStr
+
+
 class OAuthBody(BaseModel):
     session_id: str
 

@@ -10,8 +10,12 @@ from core.db import get_db
 from core.base_models import utcnow
 from auth import security as sec
 from auth.models import (RegisterBody, LoginBody, OAuthBody, RefreshBody, OrgBody,
-                         TeamBody, MemberBody, TeamMemberBody, ApiKeyBody)
+                         TeamBody, MemberBody, TeamMemberBody, ApiKeyBody,
+                         VerifyEmailBody, ResendCodeBody)
 from auth.oauth import exchange_session
+from auth import email_service
+from auth import anti_fraud
+from core.logging import logger
 from auth.deps import get_current_user, require_permission
 from auth.rbac import ROLES
 from auth.service import (serialize_user, serialize_org, serialize_team,
@@ -49,22 +53,132 @@ def _set_cookies(response: Response, tokens: dict):
                         samesite="none", max_age=604800, path="/")
 
 
+CODE_TTL_MIN = int(os.environ.get("VERIFICATION_CODE_TTL_MIN", "15"))
+RESEND_COOLDOWN_SEC = int(os.environ.get("RESEND_COOLDOWN_SEC", "60"))
+
+
+def _hash_code(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
+async def _generate_and_send_code(db, user: dict) -> None:
+    """Create a 6-digit code, store its hash on the user, and email it."""
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    verification = {
+        "code_hash": _hash_code(code),
+        "expires_at": utcnow() + timedelta(minutes=CODE_TTL_MIN),
+        "attempts": 0,
+        "last_sent": utcnow(),
+    }
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"verification": verification}})
+    try:
+        await email_service.send_verification_email(user["email"], user.get("name", ""), code)
+    except Exception as e:
+        logger.error(f"Failed to send verification email to {user['email']}: {e}")
+        raise HTTPException(status_code=502,
+                            detail="تعذّر إرسال بريد التفعيل حالياً. يرجى المحاولة بعد قليل.")
+
+
 # ----------------------------------------------------------------- auth
 @router.post("/auth/register")
-async def register(body: RegisterBody, response: Response):
+async def register(body: RegisterBody, request: Request):
     db = get_db()
     email = body.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    doc = {"email": email, "name": body.name, "password_hash": sec.hash_password(body.password),
-           "global_role": "user", "auth_provider": "local", "created_at": utcnow()}
+
+    # 1) block disposable / temporary email providers
+    if anti_fraud.is_disposable_email(email):
+        raise HTTPException(status_code=400,
+                            detail="عذراً، لا نقبل عناوين البريد المؤقتة. يرجى استخدام بريد إلكتروني حقيقي.")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        if existing.get("email_verified"):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        # Unverified account already exists -> update details and resend a fresh code
+        await db.users.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"name": body.name, "password_hash": sec.hash_password(body.password)}},
+        )
+        existing = await db.users.find_one({"_id": existing["_id"]})
+        await _generate_and_send_code(db, existing)
+        return {"requires_verification": True, "email": email,
+                "message": "أرسلنا كود تفعيل جديد إلى بريدك."}
+
+    # 2) enforce per-IP / per-device account limits (verified accounts only)
+    ip = anti_fraud.get_client_ip(request)
+    device = anti_fraud.get_device_fingerprint(request)
+    await anti_fraud.check_account_limits(db, ip, device)
+
+    # 3) create the UNVERIFIED user (no tokens, no org until verified)
+    doc = {"email": email, "name": body.name,
+           "password_hash": sec.hash_password(body.password),
+           "global_role": "user", "auth_provider": "local",
+           "email_verified": False, "signup_ip": ip, "signup_device": device,
+           "created_at": utcnow()}
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
-    await _create_personal_org(db, str(res.inserted_id), body.name)
-    doc = await db.users.find_one({"_id": res.inserted_id})
-    tokens = await _issue_tokens(db, doc)
+    await _generate_and_send_code(db, doc)
+    return {"requires_verification": True, "email": email,
+            "message": "أرسلنا كود تفعيل إلى بريدك الإلكتروني."}
+
+
+@router.post("/auth/verify-email")
+async def verify_email(body: VerifyEmailBody, response: Response):
+    db = get_db()
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="لم يتم العثور على الحساب.")
+    if user.get("email_verified"):
+        # already verified -> just log them in
+        tokens = await _issue_tokens(db, user)
+        _set_cookies(response, tokens)
+        return {"user": serialize_user(user), "token": tokens["access"],
+                "refresh_token": tokens["refresh"]}
+
+    vr = user.get("verification")
+    if not vr:
+        raise HTTPException(status_code=400, detail="لا يوجد كود تفعيل. يرجى طلب كود جديد.")
+    if vr.get("attempts", 0) >= 5:
+        raise HTTPException(status_code=429,
+                            detail="عدد كبير من المحاولات الخاطئة. يرجى طلب كود جديد.")
+    expires_at = vr.get("expires_at")
+    if expires_at and utcnow() > expires_at:
+        raise HTTPException(status_code=400, detail="انتهت صلاحية الكود. يرجى طلب كود جديد.")
+    if _hash_code(body.code.strip()) != vr.get("code_hash"):
+        await db.users.update_one({"_id": user["_id"]}, {"$inc": {"verification.attempts": 1}})
+        raise HTTPException(status_code=400, detail="الكود غير صحيح. يرجى المحاولة مرة أخرى.")
+
+    # success -> mark verified, drop the verification record, create personal org
+    await db.users.update_one({"_id": user["_id"]},
+                              {"$set": {"email_verified": True},
+                               "$unset": {"verification": ""}})
+    if not user.get("default_org_id"):
+        await _create_personal_org(db, str(user["_id"]), user.get("name", email))
+    user = await db.users.find_one({"_id": user["_id"]})
+    tokens = await _issue_tokens(db, user)
     _set_cookies(response, tokens)
-    return {"user": serialize_user(doc), "token": tokens["access"], "refresh_token": tokens["refresh"]}
+    return {"user": serialize_user(user), "token": tokens["access"],
+            "refresh_token": tokens["refresh"]}
+
+
+@router.post("/auth/resend-code")
+async def resend_code(body: ResendCodeBody):
+    db = get_db()
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    # generic response to avoid account enumeration
+    generic = {"ok": True, "message": "إذا كان الحساب موجوداً وغير مفعّل، فقد أرسلنا كوداً جديداً."}
+    if not user or user.get("email_verified"):
+        return generic
+    vr = user.get("verification") or {}
+    last_sent = vr.get("last_sent")
+    if last_sent and (utcnow() - last_sent).total_seconds() < RESEND_COOLDOWN_SEC:
+        wait = int(RESEND_COOLDOWN_SEC - (utcnow() - last_sent).total_seconds())
+        raise HTTPException(status_code=429,
+                            detail=f"يرجى الانتظار {wait} ثانية قبل طلب كود جديد.")
+    await _generate_and_send_code(db, user)
+    return generic
 
 
 @router.post("/auth/login")
@@ -75,6 +189,15 @@ async def login(body: LoginBody, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if user.get("suspended"):
         raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact support.")
+    if user.get("auth_provider", "local") == "local" and not user.get("email_verified", False):
+        # trigger a fresh code so the user can complete verification immediately
+        try:
+            await _generate_and_send_code(db, user)
+        except Exception:
+            pass
+        raise HTTPException(status_code=403,
+                            detail={"code": "email_not_verified",
+                                    "msg": "يرجى تفعيل بريدك الإلكتروني أولاً. أرسلنا لك كوداً جديداً."})
     tokens = await _issue_tokens(db, user)
     _set_cookies(response, tokens)
     return {"user": serialize_user(user), "token": tokens["access"], "refresh_token": tokens["refresh"]}
@@ -90,7 +213,8 @@ async def oauth_emergent(body: OAuthBody, response: Response):
         raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact support.")
     if not user:
         doc = {"email": email, "name": profile.get("name", email), "picture": profile.get("picture"),
-               "global_role": "user", "auth_provider": "google", "created_at": utcnow()}
+               "global_role": "user", "auth_provider": "google", "email_verified": True,
+               "created_at": utcnow()}
         res = await db.users.insert_one(doc)
         await _create_personal_org(db, str(res.inserted_id), doc["name"])
         user = await db.users.find_one({"_id": res.inserted_id})

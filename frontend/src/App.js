@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Foundation from "@/pages/Foundation";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import VerifyEmail from "@/pages/VerifyEmail";
 import AuthCallback from "@/pages/AuthCallback";
 import DashboardLayout from "@/pages/DashboardLayout";
 import Overview from "@/pages/Overview";
@@ -58,6 +59,7 @@ function AppRouter() {
       <Route path="/payment/cancel" element={<Protected><PaymentCancel /></Protected>} />
       <Route path="/login" element={<Guest><Login /></Guest>} />
       <Route path="/register" element={<Guest><Register /></Guest>} />
+      <Route path="/verify-email" element={<Guest><VerifyEmail /></Guest>} />
       <Route path="/app" element={<Protected><DashboardLayout /></Protected>}>
         <Route index element={<Overview />} />
         <Route path="chat" element={<Chat />} />

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import { getDeviceFingerprint } from "@/lib/deviceId";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export const api = axios.create({ baseURL: API, withCredentials: true });
@@ -53,10 +54,23 @@ export function AuthProvider({ children }) {
     return data.user;
   };
   const register = async (name, email, password) => {
-    const { data } = await api.post("/auth/register", { name, email, password });
+    const { data } = await api.post(
+      "/auth/register",
+      { name, email, password },
+      { headers: { "X-Device-Fingerprint": getDeviceFingerprint() } }
+    );
+    // New flow: registration never returns a token. It requires email verification.
+    return data; // { requires_verification: true, email, message }
+  };
+  const verifyEmail = async (email, code) => {
+    const { data } = await api.post("/auth/verify-email", { email, code });
     setAuthToken(data.token);
     setUser(data.user);
     return data.user;
+  };
+  const resendCode = async (email) => {
+    const { data } = await api.post("/auth/resend-code", { email });
+    return data;
   };
   const oauthExchange = async (sessionId) => {
     const { data } = await api.post("/auth/oauth/emergent", { session_id: sessionId });
@@ -71,7 +85,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, register, oauthExchange, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, setUser, login, register, verifyEmail, resendCode, oauthExchange, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

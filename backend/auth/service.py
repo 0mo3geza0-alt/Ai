@@ -15,6 +15,7 @@ def serialize_user(u: dict) -> dict:
         "picture": u.get("picture"),
         "global_role": u.get("global_role", "user"),
         "auth_provider": u.get("auth_provider", "local"),
+        "email_verified": u.get("email_verified", False),
         "default_org_id": u.get("default_org_id"),
         "suspended": u.get("suspended", False),
         "preferences": u.get("preferences") or {},

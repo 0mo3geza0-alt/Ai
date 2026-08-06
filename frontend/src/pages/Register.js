@@ -25,7 +25,15 @@ export default function Register() {
   const submit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try { await register(name, email, password); nav("/app"); }
+    try {
+      const res = await register(name, email, password);
+      if (res?.requires_verification) {
+        toast.success(res.message || "أرسلنا كود تفعيل إلى بريدك");
+        nav("/verify-email", { state: { email: res.email || email } });
+      } else {
+        nav("/app");
+      }
+    }
     catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail)); }
     finally { setLoading(false); }
   };

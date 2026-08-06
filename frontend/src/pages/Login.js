@@ -25,7 +25,15 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try { await login(email, password); nav("/app"); }
-    catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail)); }
+    catch (err) {
+      const detail = err.response?.data?.detail;
+      if (err.response?.status === 403 && detail && detail.code === "email_not_verified") {
+        toast.info(detail.msg || "يرجى تفعيل بريدك الإلكتروني");
+        nav("/verify-email", { state: { email } });
+        return;
+      }
+      toast.error(formatApiErrorDetail(detail));
+    }
     finally { setLoading(false); }
   };
 
