@@ -170,6 +170,11 @@ async def on_startup():
         _asyncio.create_task(monthly_reset_loop())
     except Exception as e:
         logger.error("Monthly reset loop not started: %s", e)
+    try:
+        from agents.scheduler import scheduler_loop
+        _asyncio.create_task(scheduler_loop())
+    except Exception as e:
+        logger.error("Agent scheduler loop not started: %s", e)
     logger.info("%s %s (%s) started", settings.app_name, settings.app_version, settings.phase)
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2 } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
@@ -21,6 +21,39 @@ const SUGGESTIONS = [
 const EXT = { image: "png", voice: "mp3", audio: "mp3" };
 
 const VOICE_OPTS = ["nova", "alloy", "ash", "coral", "echo", "fable", "onyx", "sage", "shimmer"];
+
+// ---- Prompt Gallery: ready-made starter ideas grouped by category ----
+const PROMPT_GALLERY = [
+  { cat: "Images", icon: ImageIcon, items: [
+    { title: "Futuristic city", prompt: "Generate an image of a futuristic neon city at sunset, cinematic, ultra-detailed" },
+    { title: "Product mockup", prompt: "Generate a clean product photo of a minimalist ceramic coffee mug on a marble table, studio lighting" },
+    { title: "Logo concept", prompt: "Generate a modern flat logo for an AI startup called Nimbus, purple gradient, simple icon" },
+    { title: "Fantasy character", prompt: "Generate an image of a friendly robot wizard casting glowing spells, digital art, vibrant colors" },
+  ]},
+  { cat: "Web apps", icon: Globe, items: [
+    { title: "Coffee shop page", prompt: "Build a beautiful landing page for a coffee shop with a hero, menu grid and contact section" },
+    { title: "Portfolio site", prompt: "Build a sleek personal portfolio website with an about, projects and contact section" },
+    { title: "Snake game", prompt: "Build a playable Snake game in a single HTML page with score and restart button" },
+    { title: "Pricing page", prompt: "Build a modern SaaS pricing page with three plans, a monthly/yearly toggle and a FAQ" },
+  ]},
+  { cat: "Code", icon: Code2, items: [
+    { title: "Prime checker", prompt: "Write a Python function that checks if a number is prime, with tests" },
+    { title: "REST API", prompt: "Write a minimal FastAPI CRUD API for a todo list with in-memory storage" },
+    { title: "Debounce util", prompt: "Write a reusable JavaScript debounce function with an example" },
+    { title: "SQL query", prompt: "Write a SQL query to find the top 5 customers by total order value" },
+  ]},
+  { cat: "Voice", icon: AudioLines, items: [
+    { title: "Welcome message", prompt: "Create a voiceover: Welcome to VibeVerse, your all-in-one AI studio. Let's create something amazing together." },
+    { title: "Meditation intro", prompt: "Create a voiceover: Take a deep breath in… and slowly let it go. Let's begin today's calm session." },
+    { title: "Ad script", prompt: "Create a voiceover: Introducing the future of productivity — smart, simple, and made for you." },
+  ]},
+  { cat: "Writing", icon: FileText, items: [
+    { title: "Blog article", prompt: "Write an engaging 600-word blog article about the benefits of morning routines" },
+    { title: "Cold email", prompt: "Write a friendly, concise cold outreach email offering a free trial of our AI tool" },
+    { title: "Product description", prompt: "Write a persuasive product description for wireless noise-cancelling headphones" },
+  ]},
+];
+
 
 function CopyBtn({ text }) {
   const [done, setDone] = useState(false);
@@ -121,6 +154,8 @@ export default function Chat() {
   const [attachment, setAttachment] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [pinnedDoc, setPinnedDoc] = useState(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryCat, setGalleryCat] = useState(0);
   const fileRef = useRef(null);
   const endRef = useRef(null);
   // --- live voice conversation ---
@@ -370,6 +405,10 @@ export default function Chat() {
                   </button>
                 ))}
               </div>
+              <button data-testid="open-gallery-btn" onClick={() => setGalleryOpen(true)}
+                className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm ai-gradient-bg text-white hover:opacity-90 transition-opacity">
+                <Lightbulb className="w-4 h-4" /> Browse the idea gallery
+              </button>
             </div>
           ) : (
             <div className="max-w-3xl mx-auto space-y-5">
@@ -415,6 +454,8 @@ export default function Chat() {
             <Textarea data-testid="chat-input" value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="Describe what you want to create…" rows={1} className="resize-none bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white focus:border-[#4F46E5] transition-colors rounded-xl" />
+            <Button data-testid="chat-ideas-btn" onClick={() => setGalleryOpen(true)} disabled={sending} title="Idea gallery" variant="outline"
+              className="rounded-xl h-10 w-10 p-0 bg-[#12121C] border-[rgba(255,255,255,0.12)] text-[#A855F7] hover:text-white hover:border-[#A855F7] shrink-0"><Lightbulb className="w-4 h-4" /></Button>
             <Button data-testid="chat-voice-btn" onClick={startVoiceMode} disabled={sending || uploading} title="Talk to VibeVerse" variant="outline"
               className="rounded-xl h-10 w-10 p-0 bg-[#12121C] border-[rgba(255,255,255,0.12)] text-[#A855F7] hover:text-white hover:border-[#A855F7] shrink-0"><Mic className="w-4 h-4" /></Button>
             <Button data-testid="chat-send-btn" onClick={() => send()} disabled={sending || uploading || (!input.trim() && !attachment)} className="rounded-xl h-10 w-10 p-0 ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity shrink-0"><Send className="w-4 h-4" /></Button>
@@ -458,6 +499,36 @@ export default function Chat() {
           <p className="text-[11px] text-[#64748B] mt-6">Voice mode works best on Chrome &amp; Edge. Your conversation is saved to this chat.</p>
         </div>
       )}
+
+      {galleryOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" data-testid="gallery-overlay" onClick={() => setGalleryOpen(false)}>
+          <div className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.1)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(255,255,255,0.08)]">
+              <span className="flex items-center gap-2 text-white font-semibold"><Lightbulb className="w-5 h-5 text-[#A855F7]" /> Idea Gallery</span>
+              <button data-testid="gallery-close-btn" onClick={() => setGalleryOpen(false)} className="text-[#64748B] hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex gap-2 px-5 py-3 border-b border-[rgba(255,255,255,0.06)] overflow-x-auto">
+              {PROMPT_GALLERY.map((g, ci) => (
+                <button key={ci} data-testid={`gallery-cat-${ci}`} onClick={() => setGalleryCat(ci)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${galleryCat === ci ? "ai-gradient-bg text-white" : "bg-[#12121C] text-[#94A3B8] hover:text-white border border-[rgba(255,255,255,0.1)]"}`}>
+                  <g.icon className="w-4 h-4" /> {g.cat}
+                </button>
+              ))}
+            </div>
+            <div className="p-5 overflow-y-auto grid sm:grid-cols-2 gap-3">
+              {PROMPT_GALLERY[galleryCat].items.map((it, ii) => (
+                <button key={ii} data-testid={`gallery-item-${ii}`}
+                  onClick={() => { setGalleryOpen(false); send(it.prompt); }}
+                  className="text-start p-4 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] hover:border-[#A855F7] transition-colors group">
+                  <p className="text-sm font-medium text-white mb-1 flex items-center gap-1.5">{it.title}<Sparkles className="w-3.5 h-3.5 text-[#A855F7] opacity-0 group-hover:opacity-100 transition-opacity" /></p>
+                  <p className="text-xs text-[#64748B] line-clamp-2">{it.prompt}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
 
     </div>
   );

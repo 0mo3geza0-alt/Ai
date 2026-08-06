@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Bot, Plus, Play, Trash2, Pencil, Users, Sparkles, Globe, Brain, History, X, Link2, Calculator } from "lucide-react";
+import { Bot, Plus, Play, Trash2, Pencil, Users, Sparkles, Globe, Brain, History, X, Link2, Calculator, Store, Clock, CalendarClock } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Dots } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ const ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager
 const PROVIDERS = [{ v: "auto", l: "Auto (smart routing)" }, { v: "openai", l: "OpenAI" }, { v: "anthropic", l: "Anthropic" }, { v: "gemini", l: "Gemini" }];
 const COLORS = ["#A855F7", "#4F46E5", "#EC4899", "#10B981", "#F59E0B", "#06B6D4"];
 const EMPTY = { name: "", description: "", role: "assistant", provider: "auto", model: "", system_prompt: "", tools: [], knowledge: "", color: "#A855F7" };
+const CADENCE_OPTS = [{ v: "5min", l: "Every 5 minutes" }, { v: "15min", l: "Every 15 minutes" }, { v: "hourly", l: "Hourly" }, { v: "daily", l: "Daily" }, { v: "weekly", l: "Weekly" }];
+const CADENCE_LABEL = { "5min": "every 5 min", "15min": "every 15 min", hourly: "hourly", daily: "daily", weekly: "weekly" };
 
 function AgentForm({ open, onOpenChange, initial, onSaved, oid }) {
   const [f, setF] = useState(EMPTY);
@@ -144,9 +146,40 @@ export default function Agents() {
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [market, setMarket] = useState([]);
+  const [showMarket, setShowMarket] = useState(false);
+  const [hiring, setHiring] = useState(null);
+  const [schedCadence, setSchedCadence] = useState("daily");
+  const [schedInput, setSchedInput] = useState("");
+  const [savingSched, setSavingSched] = useState(false);
 
   const load = async () => { setLoading(true); try { const { data } = await api.get(`/orgs/${oid}/agents`); setAgents(data); } catch { /* ignore */ } finally { setLoading(false); } };
   useEffect(() => { setSelected(null); setTeamIds([]); setResult(null); setHistory([]); load(); }, [oid]); // eslint-disable-line
+  useEffect(() => { api.get(`/agents/marketplace`).then(({ data }) => setMarket(data)).catch(() => {}); }, []);
+
+  const hire = async (tpl) => {
+    setHiring(tpl.id);
+    try { await api.post(`/orgs/${oid}/agents/hire`, { template_id: tpl.id }); toast.success(`${tpl.name} hired — added to your agents`); load(); }
+    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not hire agent"); }
+    finally { setHiring(null); }
+  };
+
+  const saveSchedule = async () => {
+    if (!selected) return;
+    setSavingSched(true);
+    try {
+      await api.post(`/orgs/${oid}/agents/${selected}/schedule`, { cadence: schedCadence, input: schedInput.trim(), enabled: true });
+      toast.success("Schedule saved — this agent will now run on its own");
+      load(); refreshUsage();
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not save schedule"); }
+    finally { setSavingSched(false); }
+  };
+
+  const stopSchedule = async () => {
+    if (!selected) return;
+    try { await api.delete(`/orgs/${oid}/agents/${selected}/schedule`); toast.success("Schedule paused"); load(); }
+    catch { toast.error("Could not pause schedule"); }
+  };
 
   const selectedAgent = useMemo(() => agents.find((a) => a.id === selected), [agents, selected]);
 
@@ -162,7 +195,11 @@ export default function Agents() {
 
   const pickCard = (a) => {
     if (mode === "team") setTeamIds((t) => t.includes(a.id) ? t.filter((x) => x !== a.id) : [...t, a.id]);
-    else { setSelected(a.id); setResult(null); setShowHistory(false); }
+    else {
+      setSelected(a.id); setResult(null); setShowHistory(false);
+      setSchedCadence(a.schedule?.cadence || "daily");
+      setSchedInput(a.schedule?.input || "");
+    }
   };
 
   const loadHistory = async () => { if (!selected) return; const { data } = await api.get(`/orgs/${oid}/agents/${selected}/runs`); setHistory(data); setShowHistory(true); };
@@ -193,9 +230,31 @@ export default function Agents() {
     <div className="px-5 lg:px-8 py-8 max-w-5xl">
       <div className="flex items-start justify-between gap-4 mb-1">
         <h1 className="font-display text-2xl md:text-3xl font-bold">AI Agents</h1>
-        <Button data-testid="new-agent-btn" onClick={openNew} className="rounded-xl ai-gradient-bg text-white border-0 hover:opacity-90"><Plus className="w-4 h-4 me-2" /> New Agent</Button>
+        <div className="flex gap-2">
+          <Button data-testid="marketplace-btn" onClick={() => setShowMarket((v) => !v)} variant="outline" className="rounded-xl bg-[#12121C] border-[rgba(255,255,255,0.12)] text-white hover:border-[#A855F7]"><Store className="w-4 h-4 me-2" /> Marketplace</Button>
+          <Button data-testid="new-agent-btn" onClick={openNew} className="rounded-xl ai-gradient-bg text-white border-0 hover:opacity-90"><Plus className="w-4 h-4 me-2" /> New Agent</Button>
+        </div>
       </div>
       <p className="text-[#94A3B8] mb-6">Build custom agents with roles, tools & knowledge — or orchestrate a team on one goal.</p>
+
+      {showMarket && (
+        <div className="mb-8 p-5 rounded-2xl bg-[#0C0C14] border border-[rgba(255,255,255,0.08)]" data-testid="marketplace-panel">
+          <div className="flex items-center justify-between mb-4">
+            <p className="font-medium text-white flex items-center gap-2"><Store className="w-4 h-4 text-[#A855F7]" /> Agent Marketplace</p>
+            <button onClick={() => setShowMarket(false)} className="text-[#64748B] hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {market.map((t) => (
+              <div key={t.id} data-testid={`market-tpl-${t.id}`} className="p-4 rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] flex flex-col">
+                <div className="text-2xl mb-1">{t.emoji}</div>
+                <p className="font-medium text-white text-sm">{t.name}</p>
+                <p className="text-xs text-[#64748B] mt-1 line-clamp-2 flex-1">{t.description}</p>
+                <Button data-testid={`hire-${t.id}`} onClick={() => hire(t)} disabled={hiring === t.id} className="mt-3 rounded-lg h-9 ai-gradient-bg text-white border-0 hover:opacity-90 text-sm">{hiring === t.id ? <Dots /> : "Hire agent"}</Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="inline-flex rounded-xl bg-[#0C0C14] border border-[rgba(255,255,255,0.08)] p-1 mb-6">
         <button data-testid="mode-single-btn" onClick={() => { setMode("single"); setResult(null); }} className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${mode === "single" ? "ai-gradient-bg text-white" : "text-[#94A3B8] hover:text-white"}`}><Bot className="w-4 h-4 me-1.5 inline" /> Single</button>
@@ -229,6 +288,7 @@ export default function Agents() {
                   {a.tools.includes("memory") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Brain className="w-3 h-3 me-1 inline" />{a.knowledge_count} facts</span>}
                   {a.tools.includes("browse") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Link2 className="w-3 h-3 me-1 inline" />browse</span>}
                   {a.tools.includes("calculator") && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12121C] border border-[rgba(255,255,255,0.1)] text-[#94A3B8]"><Calculator className="w-3 h-3 me-1 inline" />calc</span>}
+                  {a.schedule?.enabled && <span data-testid={`agent-sched-badge-${a.id}`} className="text-[10px] px-2 py-0.5 rounded-full bg-[#A855F7]/15 border border-[#A855F7]/40 text-[#D8B4FE]"><Clock className="w-3 h-3 me-1 inline" />{CADENCE_LABEL[a.schedule.cadence] || a.schedule.cadence}</span>}
                 </div>
               </motion.div>
             );
@@ -245,6 +305,30 @@ export default function Agents() {
           <Textarea data-testid="agent-run-input" value={input} onChange={(e) => setInput(e.target.value)} rows={3} placeholder="Ask this agent to do something..." className="resize-none bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white" />
           <Button data-testid="agent-run-btn" onClick={runSingle} disabled={running || !input.trim()} className="mt-3 rounded-full h-11 px-8 ai-gradient-bg text-white border-0 hover:opacity-90">{running ? <Dots /> : <><Play className="w-4 h-4 me-2" /> Run agent</>}</Button>
           {running ? <div className="mt-4 flex justify-center"><Dots /></div> : <OutputBox output={result?.output} sources={result?.sources} />}
+
+          <div className="mt-5 pt-4 border-t border-[rgba(255,255,255,0.06)]" data-testid="agent-schedule-section">
+            <p className="text-sm text-white flex items-center gap-2 mb-1"><CalendarClock className="w-4 h-4 text-[#A855F7]" /> Auto-schedule</p>
+            {selectedAgent.schedule?.enabled ? (
+              <p className="text-xs text-emerald-400 mb-3" data-testid="agent-schedule-status">
+                Running {CADENCE_LABEL[selectedAgent.schedule.cadence] || selectedAgent.schedule.cadence}
+                {selectedAgent.schedule.last_run ? ` · last ran ${new Date(selectedAgent.schedule.last_run).toLocaleString()}` : " · first run starting shortly"}
+              </p>
+            ) : (
+              <p className="text-xs text-[#64748B] mb-3">Let this agent run on its own on a repeating schedule.</p>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select value={schedCadence} onValueChange={setSchedCadence}>
+                <SelectTrigger data-testid="agent-schedule-cadence" className="sm:w-48 bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-[#12121C] border-[rgba(255,255,255,0.12)] text-white">{CADENCE_OPTS.map((c) => <SelectItem key={c.v} value={c.v} className="focus:bg-white/5">{c.l}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input data-testid="agent-schedule-input" value={schedInput} onChange={(e) => setSchedInput(e.target.value)} placeholder="What should it do each time? e.g. Summarize AI news" className="flex-1 bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Button data-testid="agent-schedule-save" onClick={saveSchedule} disabled={savingSched} className="rounded-xl ai-gradient-bg text-white border-0 hover:opacity-90">{savingSched ? <Dots /> : (selectedAgent.schedule?.enabled ? "Update schedule" : "Start schedule")}</Button>
+              {selectedAgent.schedule?.enabled && <Button data-testid="agent-schedule-stop" onClick={stopSchedule} variant="outline" className="rounded-xl bg-transparent border-[rgba(255,255,255,0.12)] text-[#94A3B8] hover:text-white">Pause</Button>}
+            </div>
+          </div>
+
           {showHistory && (
             <div className="mt-5 pt-4 border-t border-[rgba(255,255,255,0.06)]">
               <div className="flex items-center justify-between mb-2"><p className="text-sm text-[#94A3B8]">Recent runs</p><button onClick={() => setShowHistory(false)} className="text-[#64748B] hover:text-white"><X className="w-4 h-4" /></button></div>

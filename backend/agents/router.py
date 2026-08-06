@@ -16,17 +16,47 @@ from bson import ObjectId
 from core.db import get_db
 from core.base_models import utcnow
 from core.credits import spend, refund
-from auth.deps import require_permission
+from auth.deps import require_permission, get_current_user
 from llm import gateway
 from memory import embeddings as emb
 from memory.router import search_memories
 from tools import browser, registry
+from agents.scheduler import CADENCES
 
 router = APIRouter(prefix="/api")
 
 COST = {"agent": 3, "team": 8}
 ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager", "provocateur"]
 TOOLS = ["web_search", "memory", "browse", "calculator"]
+
+# Ready-to-hire agent templates (Agent Marketplace).
+MARKETPLACE = [
+    {"id": "research-analyst", "name": "Research Analyst", "emoji": "🔎",
+     "description": "Scours the web and writes concise, cited briefings on any topic.",
+     "role": "researcher", "tools": ["web_search", "browse"], "color": "#6366F1",
+     "system_prompt": "You are a meticulous research analyst. Given a topic, gather information, then write a concise briefing with an overview, key findings as bullet points, and inline citations [1], [2]."},
+    {"id": "daily-news-digest", "name": "Daily News Digest", "emoji": "📰",
+     "description": "Summarizes the latest news on your chosen subject every day.",
+     "role": "researcher", "tools": ["web_search"], "color": "#0EA5E9",
+     "system_prompt": "You are a news editor. Summarize the most important recent developments on the requested subject as 5 short, punchy bullet points, each with a source link."},
+    {"id": "code-reviewer", "name": "Code Reviewer", "emoji": "🧑‍💻",
+     "description": "Reviews code for bugs, style and improvements.",
+     "role": "coder", "tools": ["calculator"], "color": "#22C55E",
+     "system_prompt": "You are a senior software engineer. Review the provided code for bugs, security issues, readability and performance, and suggest concrete improvements with short examples."},
+    {"id": "social-copywriter", "name": "Social Copywriter", "emoji": "✍️",
+     "description": "Writes catchy posts and captions in your brand voice.",
+     "role": "writer", "tools": [], "color": "#EC4899",
+     "system_prompt": "You are a witty social media copywriter. Write scroll-stopping posts and captions with a clear hook, value and a call to action. Keep it on-brand and concise."},
+    {"id": "market-analyst", "name": "Market Analyst", "emoji": "📈",
+     "description": "Analyzes trends and gives structured, data-aware takes.",
+     "role": "analyst", "tools": ["web_search"], "color": "#F59E0B",
+     "system_prompt": "You are a sharp market analyst. Analyze the topic with a structured take: what's happening, why it matters, risks, and an actionable recommendation."},
+    {"id": "study-buddy", "name": "Study Buddy", "emoji": "📚",
+     "description": "Explains hard topics simply and quizzes you.",
+     "role": "assistant", "tools": ["memory"], "color": "#8B5CF6",
+     "system_prompt": "You are a friendly tutor. Explain concepts simply with analogies and examples, then offer a couple of quick questions to check understanding. Remember what the learner struggles with."},
+]
+MARKETPLACE_BY_ID = {t["id"]: t for t in MARKETPLACE}
 
 # Optional persona style injected per role. 'provocateur' = VibeVerse's bold 18+ persona.
 ROLE_STYLES = {
@@ -62,16 +92,33 @@ class TeamRunBody(BaseModel):
     agent_ids: list[str] = Field(min_length=1)
 
 
+class HireBody(BaseModel):
+    template_id: str
+
+
+class ScheduleBody(BaseModel):
+    cadence: str = "daily"
+    input: str = Field(default="", max_length=8000)
+    enabled: bool = True
+
+
 def _iso(v):
     return v.isoformat() if hasattr(v, "isoformat") else v
 
 
 def _public(a: dict) -> dict:
+    sch = a.get("schedule")
+    schedule = None
+    if sch:
+        schedule = {"enabled": sch.get("enabled", False), "cadence": sch.get("cadence"),
+                    "input": sch.get("input", ""), "next_run": _iso(sch.get("next_run")),
+                    "last_run": _iso(sch.get("last_run")), "last_run_id": sch.get("last_run_id")}
     return {"id": str(a["_id"]), "name": a["name"], "description": a.get("description", ""),
             "role": a.get("role", "assistant"), "system_prompt": a.get("system_prompt", ""),
             "provider": a.get("provider"), "model": a.get("model"),
             "tools": a.get("tools", []), "color": a.get("color", "#A855F7"),
             "knowledge_count": a.get("knowledge_count", 0),
+            "schedule": schedule,
             "created_at": _iso(a.get("created_at"))}
 
 
@@ -128,6 +175,28 @@ async def create_agent(org_id: str, body: AgentBody, ctx: dict = Depends(require
     aid = str(res.inserted_id)
     count = await _store_knowledge(db, org_id, aid, ctx["user"]["id"], body.knowledge)
     await db.agents.update_one({"_id": res.inserted_id}, {"$set": {"knowledge_count": count}})
+    a = await db.agents.find_one({"_id": res.inserted_id})
+    return _public(a)
+
+
+# --------------------------------------------------------------- marketplace (ready-to-hire agents)
+@router.get("/agents/marketplace")
+async def agent_marketplace(current_user: dict = Depends(get_current_user)):
+    return MARKETPLACE
+
+
+@router.post("/orgs/{org_id}/agents/hire")
+async def hire_agent(org_id: str, body: HireBody, ctx: dict = Depends(require_permission("file:write"))):
+    tpl = MARKETPLACE_BY_ID.get(body.template_id)
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    db = get_db()
+    doc = {"org_id": org_id, "user_id": ctx["user"]["id"], "name": tpl["name"],
+           "description": tpl["description"], "role": tpl["role"], "system_prompt": tpl["system_prompt"],
+           "provider": None, "model": None, "tools": [t for t in tpl.get("tools", []) if t in TOOLS],
+           "color": tpl.get("color", "#A855F7"), "knowledge_count": 0, "created_at": utcnow(),
+           "from_template": tpl["id"]}
+    res = await db.agents.insert_one(doc)
     a = await db.agents.find_one({"_id": res.inserted_id})
     return _public(a)
 
@@ -238,6 +307,32 @@ async def delete_agent(org_id: str, aid: str, ctx: dict = Depends(require_permis
     await db.memories.delete_many({"org_id": org_id, "agent_id": aid})
     await db.agent_runs.delete_many({"org_id": org_id, "agent_id": aid})
     return {"ok": True}
+
+
+# --------------------------------------------------------------- scheduling (autonomous auto-runs)
+@router.post("/orgs/{org_id}/agents/{aid}/schedule")
+async def set_schedule(org_id: str, aid: str, body: ScheduleBody, ctx: dict = Depends(require_permission("file:write"))):
+    if body.cadence not in CADENCES:
+        raise HTTPException(status_code=400, detail=f"Cadence must be one of {list(CADENCES)}")
+    db = get_db()
+    agent = await db.agents.find_one({"_id": ObjectId(aid), "org_id": org_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    # First run fires on the next scheduler tick so users see it working right away.
+    schedule = {"enabled": body.enabled, "cadence": body.cadence, "input": body.input,
+                "next_run": utcnow() if body.enabled else None, "last_run": None, "last_run_id": None}
+    await db.agents.update_one({"_id": ObjectId(aid)}, {"$set": {"schedule": schedule}})
+    a = await db.agents.find_one({"_id": ObjectId(aid)})
+    return _public(a)
+
+
+@router.delete("/orgs/{org_id}/agents/{aid}/schedule")
+async def clear_schedule(org_id: str, aid: str, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    await db.agents.update_one({"_id": ObjectId(aid), "org_id": org_id},
+                               {"$set": {"schedule.enabled": False, "schedule.next_run": None}})
+    return {"ok": True}
+
 
 
 # --------------------------------------------------------------- run (single agent)
