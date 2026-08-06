@@ -18,7 +18,7 @@ import sys
 import time
 
 # Backend URL from frontend/.env
-BASE_URL = "https://build-preview-232.preview.emergentagent.com/api"
+BASE_URL = "https://config-setup-8.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@aiplatform.com"
