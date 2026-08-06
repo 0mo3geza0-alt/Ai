@@ -136,7 +136,8 @@ async def list_models(current_user: dict = Depends(get_current_user)):
 async def chat_sessions(org_id: str, ctx: dict = Depends(require_permission("file:read"))):
     db = get_db()
     s = await db.chat_sessions.find({"org_id": org_id}).sort("updated_at", -1).to_list(200)
-    return [{"id": str(x["_id"]), "title": x.get("title"), "updated_at": _iso(x.get("updated_at"))} for x in s]
+    return [{"id": str(x["_id"]), "title": x.get("title"), "updated_at": _iso(x.get("updated_at")),
+             "pinned_doc": x.get("pinned_doc")} for x in s]
 
 
 @router.post("/orgs/{org_id}/chat/sessions")
@@ -162,6 +163,25 @@ async def chat_messages(org_id: str, sid: str, ctx: dict = Depends(require_permi
     msgs = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     return [{"role": m["role"], "content": m["content"], "kind": m.get("kind", "text"),
              "media": m.get("media"), "created_at": _iso(m["created_at"])} for m in msgs]
+
+
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/document")
+async def pin_document(org_id: str, sid: str, body: Attachment, ctx: dict = Depends(require_permission("file:write"))):
+    """Pin a document to a chat session so every following question is answered using it as context."""
+    db = get_db()
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    doc = {"path": body.path, "mime": body.mime, "kind": "file", "name": body.name, "url": body.url}
+    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"pinned_doc": doc, "updated_at": utcnow()}})
+    return {"ok": True, "pinned_doc": doc}
+
+
+@router.delete("/orgs/{org_id}/chat/sessions/{sid}/document")
+async def unpin_document(org_id: str, sid: str, ctx: dict = Depends(require_permission("file:write"))):
+    db = get_db()
+    await db.chat_sessions.update_one({"_id": ObjectId(sid), "org_id": org_id}, {"$unset": {"pinned_doc": ""}})
+    return {"ok": True}
 
 
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/send")
@@ -366,7 +386,12 @@ async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends
                                        "created_at": utcnow()})
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
-    img_b64, file_path, file_mime = await _fetch_attachment(att)
+    # If no attachment on this message but a document is pinned to the session, use it as context.
+    effective_att = att
+    if not effective_att and session.get("pinned_doc"):
+        try: effective_att = Attachment(**session["pinned_doc"])
+        except Exception: effective_att = None
+    img_b64, file_path, file_mime = await _fetch_attachment(effective_att)
     route = await gateway.route_intent(body.message, context, has_image=bool(img_b64), has_file=bool(file_path))
     action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
 
@@ -443,7 +468,12 @@ async def chat_agent_stream(org_id: str, sid: str, body: AgentBody, ctx: dict = 
                                        "created_at": utcnow()})
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
-    img_b64, file_path, file_mime = await _fetch_attachment(att)
+    # If no attachment on this message but a document is pinned to the session, use it as context.
+    effective_att = att
+    if not effective_att and session.get("pinned_doc"):
+        try: effective_att = Attachment(**session["pinned_doc"])
+        except Exception: effective_att = None
+    img_b64, file_path, file_mime = await _fetch_attachment(effective_att)
     route = await gateway.route_intent(body.message, context, has_image=bool(img_b64), has_file=bool(file_path))
     action, prompt, lang, reply = route["action"], route["prompt"], route["language"], route["reply"]
 

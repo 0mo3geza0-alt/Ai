@@ -120,6 +120,7 @@ export default function Chat() {
   const [sending, setSending] = useState(false);
   const [attachment, setAttachment] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [pinnedDoc, setPinnedDoc] = useState(null);
   const fileRef = useRef(null);
   const endRef = useRef(null);
   // --- live voice conversation ---
@@ -137,9 +138,15 @@ export default function Chat() {
   useEffect(() => { setActive(null); setMessages([]); loadSessions(); }, [oid]); // eslint-disable-line
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, sending]);
 
-  const openSession = async (id) => { setActive(id); const { data } = await api.get(`/orgs/${oid}/chat/sessions/${id}/messages`); setMessages(data); };
-  const newChat = async () => { setActive(null); setMessages([]); setAttachment(null); };
-  const delSession = async (id, e) => { e.stopPropagation(); await api.delete(`/orgs/${oid}/chat/sessions/${id}`); if (active === id) { setActive(null); setMessages([]); } loadSessions(); };
+  const openSession = async (id) => {
+    setActive(id);
+    const { data } = await api.get(`/orgs/${oid}/chat/sessions/${id}/messages`);
+    setMessages(data);
+    const ss = await loadSessions();
+    setPinnedDoc(ss.find((s) => s.id === id)?.pinned_doc || null);
+  };
+  const newChat = async () => { setActive(null); setMessages([]); setAttachment(null); setPinnedDoc(null); };
+  const delSession = async (id, e) => { e.stopPropagation(); await api.delete(`/orgs/${oid}/chat/sessions/${id}`); if (active === id) { setActive(null); setMessages([]); setPinnedDoc(null); } loadSessions(); };
 
   const pickFile = async (e) => {
     const f = e.target.files?.[0];
@@ -149,9 +156,26 @@ export default function Chat() {
     try {
       const fd = new FormData(); fd.append("file", f);
       const { data } = await api.post(`/orgs/${oid}/uploads`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      setAttachment(data);
+      if (data.kind === "image") {
+        setAttachment(data);
+      } else {
+        // Documents get pinned to the session so the user can ask follow-up questions about them.
+        let sid = active;
+        if (!sid) { const { data: s } = await api.post(`/orgs/${oid}/chat/sessions`, {}); sid = s.id; setActive(sid); }
+        await api.post(`/orgs/${oid}/chat/sessions/${sid}/document`, { path: data.path, mime: data.mime, kind: "file", name: data.name, url: data.url });
+        setPinnedDoc({ name: data.name, mime: data.mime, url: data.url, path: data.path });
+        toast.success("Document ready — ask anything about it");
+        loadSessions();
+      }
     } catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Upload failed"); }
     finally { setUploading(false); }
+  };
+
+  const removePinnedDoc = async () => {
+    if (!active) { setPinnedDoc(null); return; }
+    try { await api.delete(`/orgs/${oid}/chat/sessions/${active}/document`); } catch { /* noop */ }
+    setPinnedDoc(null);
+    loadSessions();
   };
 
   const pollJob = async (msg) => {
@@ -324,6 +348,14 @@ export default function Chat() {
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
+        {pinnedDoc && (
+          <div data-testid="pinned-doc-banner" className="flex items-center gap-2 px-5 lg:px-8 py-2.5 border-b border-[rgba(255,255,255,0.06)] bg-[#A855F7]/10">
+            <FileText className="w-4 h-4 text-[#A855F7] shrink-0" />
+            <span className="text-sm text-[#E2E8F0] truncate">Chatting with <span className="font-medium">{pinnedDoc.name}</span></span>
+            <span className="text-xs text-[#64748B] hidden sm:inline">— ask anything about this document</span>
+            <button data-testid="pinned-doc-remove" onClick={removePinnedDoc} className="ms-auto text-[#64748B] hover:text-red-400 shrink-0" title="Stop using this document"><X className="w-4 h-4" /></button>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto px-5 lg:px-8 py-6">
           {messages.length === 0 && !sending ? (
             <div className="h-full flex flex-col items-center justify-center text-center">

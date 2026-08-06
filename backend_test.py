@@ -1,377 +1,320 @@
 #!/usr/bin/env python3
 """
-Backend API Test Suite for VibeVerse Rebrand + AI Identity Bug Fix + Provocateur Agent
-Tests all 4 scenarios from review_request:
-1. AI identity bug fix (CRITICAL)
-2. API root rebrand
-3. Provocateur role acceptance
-4. Seeded Rebel agent
+Test script for Chat with Files (session-pinned document Q&A) feature.
+Tests the ability to pin a document to a chat session and ask multiple questions grounded in that document.
 """
 import requests
 import time
-import sys
+import os
+import tempfile
 
-# Backend URL from frontend/.env
-BASE_URL = "https://git-hub-access-1.preview.emergentagent.com/api"
-
-# Test credentials from /app/memory/test_credentials.md
+# Configuration
+BACKEND_URL = "https://git-hub-access-1.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@aiplatform.com"
 ADMIN_PASSWORD = "admin12345"
 
-# Identity keywords that must NOT appear in AI responses (case-insensitive)
-FORBIDDEN_KEYWORDS = ["openai", "chatgpt", "gpt", "anthropic", "claude", "gemini", "llama"]
+# Test document content with unique facts
+TEST_DOC_CONTENT = """VibeVerse internal memo. Project codename: BLUE-PELICAN-7. The secret launch date is March 14, 2031. The lead engineer is Dr. Zara Kovac. The office is on floor 42 of the Nimbus Tower."""
 
-def log(msg):
-    print(f"[TEST] {msg}")
+def print_test(num, desc):
+    print(f"\n{'='*80}")
+    print(f"TEST {num}: {desc}")
+    print('='*80)
 
-def error(msg):
-    print(f"[ERROR] {msg}", file=sys.stderr)
+def print_pass(msg):
+    print(f"✅ PASS: {msg}")
 
-def success(msg):
-    print(f"[SUCCESS] {msg}")
-
-def check_identity_response(text, test_name):
-    """Verify response contains VibeVerse and does NOT contain forbidden keywords."""
-    text_lower = text.lower()
-    
-    # Must contain "vibeverse"
-    if "vibeverse" not in text_lower:
-        error(f"{test_name}: Response does NOT contain 'VibeVerse'")
-        error(f"Actual response: {text}")
-        return False
-    
-    # Must NOT contain any forbidden keywords
-    found_forbidden = []
-    for keyword in FORBIDDEN_KEYWORDS:
-        if keyword in text_lower:
-            found_forbidden.append(keyword)
-    
-    if found_forbidden:
-        error(f"{test_name}: Response contains FORBIDDEN keywords: {found_forbidden}")
-        error(f"Actual response: {text}")
-        return False
-    
-    success(f"{test_name}: Identity check PASSED - contains 'VibeVerse', no forbidden keywords")
-    log(f"Response preview: {text[:200]}...")
-    return True
+def print_fail(msg):
+    print(f"❌ FAIL: {msg}")
 
 def main():
-    log("=" * 80)
-    log("VibeVerse Backend Test Suite - Rebrand + Identity Bug Fix + Provocateur")
-    log("=" * 80)
+    print("="*80)
+    print("CHAT WITH FILES (SESSION-PINNED DOCUMENT) TEST SUITE")
+    print("="*80)
     
-    # ========== SETUP: Login and get org_id ==========
-    log("\n[SETUP] Step 1: Admin login")
-    try:
-        login_resp = requests.post(
-            f"{BASE_URL}/auth/login",
-            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
-            timeout=30
-        )
-        if login_resp.status_code != 200:
-            error(f"Login failed: {login_resp.status_code} - {login_resp.text}")
-            return False
-        
-        token = login_resp.json().get("token")
-        if not token:
-            error("No token in login response")
-            return False
-        
-        success(f"Login successful, token: {token[:20]}...")
-    except Exception as e:
-        error(f"Login request failed: {e}")
-        return False
+    # Step 0: Login
+    print_test(0, "Admin Login")
+    login_resp = requests.post(f"{BACKEND_URL}/auth/login", json={
+        "email": ADMIN_EMAIL,
+        "password": ADMIN_PASSWORD
+    })
+    if login_resp.status_code != 200:
+        print_fail(f"Login failed: {login_resp.status_code} {login_resp.text}")
+        return
     
+    token = login_resp.json().get("token")
+    if not token:
+        print_fail("No token in login response")
+        return
+    
+    print_pass(f"Login successful, got token")
     headers = {"Authorization": f"Bearer {token}"}
     
-    log("\n[SETUP] Step 2: Get org_id from /api/auth/me")
-    try:
-        me_resp = requests.get(f"{BASE_URL}/auth/me", headers=headers, timeout=30)
-        if me_resp.status_code != 200:
-            error(f"GET /auth/me failed: {me_resp.status_code} - {me_resp.text}")
-            return False
-        
-        org_id = me_resp.json().get("default_org_id")
-        if not org_id:
-            error("No default_org_id in /auth/me response")
-            return False
-        
-        success(f"Got org_id: {org_id}")
-    except Exception as e:
-        error(f"GET /auth/me failed: {e}")
-        return False
+    # Get org_id
+    me_resp = requests.get(f"{BACKEND_URL}/auth/me", headers=headers)
+    if me_resp.status_code != 200:
+        print_fail(f"Failed to get user info: {me_resp.status_code}")
+        return
     
-    # ========== TEST 2: API Root Rebrand ==========
-    log("\n" + "=" * 80)
-    log("TEST 2: API Root Rebrand - GET /api/ should return 'VibeVerse API'")
-    log("=" * 80)
-    try:
-        root_resp = requests.get(f"{BASE_URL}/", timeout=30)
-        if root_resp.status_code != 200:
-            error(f"GET /api/ failed: {root_resp.status_code} - {root_resp.text}")
-            return False
-        
-        message = root_resp.json().get("message")
-        if message == "VibeVerse API":
-            success(f"TEST 2 PASSED: API root returns 'VibeVerse API'")
-        else:
-            error(f"TEST 2 FAILED: Expected 'VibeVerse API', got '{message}'")
-            return False
-    except Exception as e:
-        error(f"TEST 2 FAILED: {e}")
-        return False
+    org_id = me_resp.json().get("default_org_id")
+    if not org_id:
+        print_fail("No default_org_id in /auth/me response")
+        return
     
-    # ========== TEST 3: Provocateur Role Acceptance ==========
-    log("\n" + "=" * 80)
-    log("TEST 3: Provocateur Role - POST /api/orgs/{org}/agents with role='provocateur'")
-    log("=" * 80)
+    print_pass(f"Got org_id: {org_id}")
+    
+    # TEST 1: UPLOAD document
+    print_test(1, "UPLOAD - Upload test document as .txt file")
+    
+    # Create temporary file with test content
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+        f.write(TEST_DOC_CONTENT)
+        temp_file_path = f.name
+    
     try:
-        agent_body = {
-            "name": "ProvTest",
-            "role": "provocateur",
-            "system_prompt": "You are bold.",
-            "tools": []
+        with open(temp_file_path, 'rb') as f:
+            files = {'file': ('vibeverse_memo.txt', f, 'text/plain')}
+            upload_resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/uploads", 
+                                       headers=headers, files=files)
+        
+        if upload_resp.status_code != 200:
+            print_fail(f"Upload failed: {upload_resp.status_code} {upload_resp.text}")
+            return
+        
+        upload_data = upload_resp.json()
+        required_fields = ['path', 'mime', 'kind', 'name', 'url']
+        missing = [f for f in required_fields if f not in upload_data]
+        if missing:
+            print_fail(f"Upload response missing fields: {missing}")
+            return
+        
+        if upload_data['kind'] != 'file':
+            print_fail(f"Expected kind='file', got '{upload_data['kind']}'")
+            return
+        
+        print_pass(f"Upload successful: {upload_data['name']}, path={upload_data['path']}, url={upload_data['url']}")
+        
+        # Store upload info for pinning
+        doc_attachment = {
+            'path': upload_data['path'],
+            'mime': upload_data['mime'],
+            'kind': upload_data['kind'],
+            'name': upload_data['name'],
+            'url': upload_data['url']
         }
-        create_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/agents",
-            headers=headers,
-            json=agent_body,
-            timeout=30
-        )
-        if create_resp.status_code != 200:
-            error(f"TEST 3 FAILED: Expected 200, got {create_resp.status_code} - {create_resp.text}")
-            return False
         
-        agent_data = create_resp.json()
-        if agent_data.get("role") != "provocateur":
-            error(f"TEST 3 FAILED: Agent role is '{agent_data.get('role')}', expected 'provocateur'")
-            return False
-        
-        success(f"TEST 3 PASSED: Provocateur role accepted, agent created: {agent_data.get('id')}")
-    except Exception as e:
-        error(f"TEST 3 FAILED: {e}")
-        return False
+    finally:
+        os.unlink(temp_file_path)
     
-    # ========== TEST 4: Seeded Rebel Agent ==========
-    log("\n" + "=" * 80)
-    log("TEST 4: Seeded Rebel Agent - GET /api/orgs/{org}/agents and run it")
-    log("=" * 80)
-    try:
-        agents_resp = requests.get(f"{BASE_URL}/orgs/{org_id}/agents", headers=headers, timeout=30)
-        if agents_resp.status_code != 200:
-            error(f"GET /agents failed: {agents_resp.status_code} - {agents_resp.text}")
-            return False
-        
-        agents = agents_resp.json()
-        rebel = None
-        for agent in agents:
-            if agent.get("name") == "Rebel":
-                rebel = agent
+    # TEST 2: CREATE SESSION
+    print_test(2, "CREATE SESSION - Create new chat session")
+    
+    session_resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions",
+                                headers=headers, json={})
+    
+    if session_resp.status_code != 200:
+        print_fail(f"Session creation failed: {session_resp.status_code} {session_resp.text}")
+        return
+    
+    session_data = session_resp.json()
+    sid = session_data.get('id')
+    if not sid:
+        print_fail("No session id in response")
+        return
+    
+    print_pass(f"Session created: {sid}")
+    
+    # TEST 3: PIN DOC
+    print_test(3, "PIN DOC - Pin document to session")
+    
+    pin_resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/document",
+                            headers=headers, json=doc_attachment)
+    
+    if pin_resp.status_code != 200:
+        print_fail(f"Pin document failed: {pin_resp.status_code} {pin_resp.text}")
+        return
+    
+    pin_data = pin_resp.json()
+    if not pin_data.get('ok'):
+        print_fail(f"Pin response ok=False: {pin_data}")
+        return
+    
+    if 'pinned_doc' not in pin_data:
+        print_fail("No pinned_doc in response")
+        return
+    
+    pinned = pin_data['pinned_doc']
+    if pinned.get('name') != doc_attachment['name']:
+        print_fail(f"Pinned doc name mismatch: expected {doc_attachment['name']}, got {pinned.get('name')}")
+        return
+    
+    print_pass(f"Document pinned successfully: {pinned}")
+    
+    # TEST 4: SESSION LIST REFLECTS PIN
+    print_test(4, "SESSION LIST - Verify session list shows pinned_doc")
+    
+    sessions_resp = requests.get(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions", headers=headers)
+    
+    if sessions_resp.status_code != 200:
+        print_fail(f"Get sessions failed: {sessions_resp.status_code} {sessions_resp.text}")
+        return
+    
+    sessions = sessions_resp.json()
+    target_session = None
+    for s in sessions:
+        if s.get('id') == sid:
+            target_session = s
+            break
+    
+    if not target_session:
+        print_fail(f"Session {sid} not found in sessions list")
+        return
+    
+    if 'pinned_doc' not in target_session:
+        print_fail("Session in list does not have pinned_doc field")
+        return
+    
+    if target_session['pinned_doc'].get('name') != doc_attachment['name']:
+        print_fail(f"Session pinned_doc name mismatch: {target_session['pinned_doc']}")
+        return
+    
+    print_pass(f"Session list correctly shows pinned_doc: {target_session['pinned_doc']['name']}")
+    
+    # TEST 5: GROUNDED ANSWER (KEY TEST)
+    print_test(5, "GROUNDED ANSWER - Ask question answerable only from pinned doc (NO attachment field)")
+    
+    question1 = "What is the project codename and who is the lead engineer?"
+    
+    agent_resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
+                              headers=headers, json={"message": question1})
+    
+    if agent_resp.status_code != 200:
+        print_fail(f"Agent call failed: {agent_resp.status_code} {agent_resp.text}")
+        return
+    
+    agent_data = agent_resp.json()
+    content = agent_data.get('content', '')
+    
+    print(f"\n📝 Question: {question1}")
+    print(f"🤖 Assistant response: {content}")
+    
+    # Check for required facts (case-insensitive)
+    content_lower = content.lower()
+    has_codename = 'blue-pelican-7' in content_lower or 'blue pelican 7' in content_lower
+    has_engineer = 'zara kovac' in content_lower or 'dr. zara kovac' in content_lower or 'dr zara kovac' in content_lower
+    
+    if not has_codename:
+        print_fail(f"Response does not contain 'BLUE-PELICAN-7' (case-insensitive)")
+        print(f"Content: {content}")
+        return
+    
+    if not has_engineer:
+        print_fail(f"Response does not contain 'Zara Kovac' (case-insensitive)")
+        print(f"Content: {content}")
+        return
+    
+    print_pass(f"Response correctly includes BLUE-PELICAN-7 and Zara Kovac - pinned document is being used as context!")
+    
+    # TEST 6: FOLLOW-UP without re-attaching
+    print_test(6, "FOLLOW-UP - Ask follow-up question without re-attaching document")
+    
+    question2 = "What floor is the office on?"
+    
+    agent_resp2 = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
+                               headers=headers, json={"message": question2})
+    
+    if agent_resp2.status_code != 200:
+        print_fail(f"Agent call failed: {agent_resp2.status_code} {agent_resp2.text}")
+        return
+    
+    agent_data2 = agent_resp2.json()
+    content2 = agent_data2.get('content', '')
+    
+    print(f"\n📝 Question: {question2}")
+    print(f"🤖 Assistant response: {content2}")
+    
+    # Check for floor 42
+    has_floor = '42' in content2 or 'forty-two' in content2.lower() or 'forty two' in content2.lower()
+    
+    if not has_floor:
+        print_fail(f"Response does not mention floor 42")
+        print(f"Content: {content2}")
+        return
+    
+    print_pass(f"Response correctly mentions floor 42 - pinned document context persists across turns!")
+    
+    # TEST 7: UNPIN
+    print_test(7, "UNPIN - Remove pinned document from session")
+    
+    unpin_resp = requests.delete(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/document",
+                                headers=headers)
+    
+    if unpin_resp.status_code != 200:
+        print_fail(f"Unpin failed: {unpin_resp.status_code} {unpin_resp.text}")
+        return
+    
+    unpin_data = unpin_resp.json()
+    if not unpin_data.get('ok'):
+        print_fail(f"Unpin response ok=False: {unpin_data}")
+        return
+    
+    print_pass("Document unpinned successfully")
+    
+    # Verify session list no longer shows pinned_doc
+    sessions_resp2 = requests.get(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions", headers=headers)
+    if sessions_resp2.status_code == 200:
+        sessions2 = sessions_resp2.json()
+        target_session2 = None
+        for s in sessions2:
+            if s.get('id') == sid:
+                target_session2 = s
                 break
         
-        if not rebel:
-            error("TEST 4 FAILED: 'Rebel' agent not found in agents list")
-            return False
-        
-        if rebel.get("role") != "provocateur":
-            error(f"TEST 4 FAILED: Rebel agent role is '{rebel.get('role')}', expected 'provocateur'")
-            return False
-        
-        success(f"Rebel agent found: id={rebel.get('id')}, role={rebel.get('role')}")
-        
-        # Run the Rebel agent
-        log("Running Rebel agent with 'Introduce yourself in one short line.'")
-        run_body = {"input": "Introduce yourself in one short line."}
-        run_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/agents/{rebel['id']}/run",
-            headers=headers,
-            json=run_body,
-            timeout=60
-        )
-        if run_resp.status_code != 200:
-            error(f"TEST 4 FAILED: Agent run failed: {run_resp.status_code} - {run_resp.text}")
-            return False
-        
-        output = run_resp.json().get("output", "")
-        success(f"Rebel agent run successful")
-        log(f"Rebel output: {output}")
-        
-        # Check if output mentions any identity - if so, must be VibeVerse
-        output_lower = output.lower()
-        mentions_identity = any(word in output_lower for word in ["created", "made", "built", "company", "vibeverse"])
-        
-        if mentions_identity:
-            log("Output mentions identity, verifying it's VibeVerse...")
-            if not check_identity_response(output, "TEST 4 (Rebel identity)"):
-                return False
-        else:
-            log("Output does not mention identity (acceptable)")
-        
-        success("TEST 4 PASSED: Rebel agent exists, runs correctly, and identity is safe")
-    except Exception as e:
-        error(f"TEST 4 FAILED: {e}")
-        return False
+        if target_session2:
+            pinned_doc_value = target_session2.get('pinned_doc')
+            if pinned_doc_value is None or pinned_doc_value == {}:
+                print_pass("Session list confirms pinned_doc is null/absent after unpin")
+            else:
+                print_fail(f"Session still shows pinned_doc after unpin: {pinned_doc_value}")
+                return
     
-    # ========== TEST 1: AI Identity Bug Fix (CRITICAL) ==========
-    log("\n" + "=" * 80)
-    log("TEST 1 (CRITICAL): AI Identity Bug Fix - Chat must present as VibeVerse")
-    log("=" * 80)
+    # TEST 8: ERROR - Invalid session ID
+    print_test(8, "ERROR - Pin document to non-existent session (expect 404)")
     
-    # Step 1: Create chat session
-    log("Step 1: Creating chat session")
-    try:
-        session_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/chat/sessions",
-            headers=headers,
-            json={},
-            timeout=30
-        )
-        if session_resp.status_code != 200:
-            error(f"Create session failed: {session_resp.status_code} - {session_resp.text}")
-            return False
-        
-        sid = session_resp.json().get("id")
-        if not sid:
-            error("No session id in response")
-            return False
-        
-        success(f"Chat session created: {sid}")
-    except Exception as e:
-        error(f"Create session failed: {e}")
-        return False
+    fake_sid = "123456789012345678901234"  # Valid 24-hex ObjectId format but doesn't exist
     
-    # Step 2: Test English identity question
-    log("\nStep 2: Testing English identity question")
-    english_question = "Who created you? Are you made by OpenAI or ChatGPT? Which company and model are you exactly?"
-    log(f"Question: {english_question}")
+    error_resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{fake_sid}/document",
+                              headers=headers, json=doc_attachment)
     
-    try:
-        agent_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
-            headers=headers,
-            json={"message": english_question},
-            timeout=90
-        )
-        if agent_resp.status_code != 200:
-            error(f"Agent endpoint failed: {agent_resp.status_code} - {agent_resp.text}")
-            return False
-        
-        agent_data = agent_resp.json()
-        log(f"Agent response: {agent_data}")
-        
-        # Check if we got direct content or need to poll messages
-        if "content" in agent_data:
-            english_reply = agent_data["content"]
-        else:
-            # Poll messages endpoint
-            log("No direct content, fetching from /messages endpoint")
-            time.sleep(2)  # Give it a moment to process
-            messages_resp = requests.get(
-                f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/messages",
-                headers=headers,
-                timeout=30
-            )
-            if messages_resp.status_code != 200:
-                error(f"GET messages failed: {messages_resp.status_code} - {messages_resp.text}")
-                return False
-            
-            messages = messages_resp.json()
-            # Find the assistant's reply (last message with role=assistant)
-            assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
-            if not assistant_msgs:
-                error("No assistant message found in chat history")
-                return False
-            
-            english_reply = assistant_msgs[-1].get("content", "")
-        
-        if not english_reply:
-            error("Empty reply from assistant")
-            return False
-        
-        log(f"\nEnglish reply received ({len(english_reply)} chars)")
-        if not check_identity_response(english_reply, "TEST 1 (English)"):
-            return False
-        
-    except Exception as e:
-        error(f"English identity test failed: {e}")
-        return False
+    if error_resp.status_code == 404:
+        print_pass(f"Correctly returned 404 for non-existent session")
+    else:
+        print_fail(f"Expected 404, got {error_resp.status_code}: {error_resp.text}")
+        return
     
-    # Step 3: Test Arabic identity question
-    log("\nStep 3: Testing Arabic identity question")
-    arabic_question = "ما هي الشركة والموديل الخاص بك؟"
-    log(f"Question: {arabic_question}")
-    
-    try:
-        agent_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
-            headers=headers,
-            json={"message": arabic_question},
-            timeout=90
-        )
-        if agent_resp.status_code != 200:
-            error(f"Agent endpoint failed: {agent_resp.status_code} - {agent_resp.text}")
-            return False
-        
-        agent_data = agent_resp.json()
-        
-        # Check if we got direct content or need to poll messages
-        if "content" in agent_data:
-            arabic_reply = agent_data["content"]
-        else:
-            # Poll messages endpoint
-            log("No direct content, fetching from /messages endpoint")
-            time.sleep(2)
-            messages_resp = requests.get(
-                f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/messages",
-                headers=headers,
-                timeout=30
-            )
-            if messages_resp.status_code != 200:
-                error(f"GET messages failed: {messages_resp.status_code} - {messages_resp.text}")
-                return False
-            
-            messages = messages_resp.json()
-            assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
-            if not assistant_msgs:
-                error("No assistant message found in chat history")
-                return False
-            
-            arabic_reply = assistant_msgs[-1].get("content", "")
-        
-        if not arabic_reply:
-            error("Empty reply from assistant")
-            return False
-        
-        log(f"\nArabic reply received ({len(arabic_reply)} chars)")
-        if not check_identity_response(arabic_reply, "TEST 1 (Arabic)"):
-            return False
-        
-    except Exception as e:
-        error(f"Arabic identity test failed: {e}")
-        return False
-    
-    success("TEST 1 PASSED: AI identity bug fix verified - both English and Arabic tests passed")
-    
-    # ========== ALL TESTS PASSED ==========
-    log("\n" + "=" * 80)
-    success("🎉 ALL 4 TESTS PASSED!")
-    log("=" * 80)
-    log("✅ TEST 1 (CRITICAL): AI identity bug fix - VibeVerse identity maintained")
-    log("✅ TEST 2: API root rebrand - returns 'VibeVerse API'")
-    log("✅ TEST 3: Provocateur role - accepted and agent created")
-    log("✅ TEST 4: Seeded Rebel agent - exists, runs, identity safe")
-    log("=" * 80)
-    return True
+    # SUMMARY
+    print("\n" + "="*80)
+    print("🎉 ALL 8 TESTS PASSED!")
+    print("="*80)
+    print("\nSUMMARY:")
+    print("✅ TEST 1: Document upload working (returns path, mime, kind='file', name, url)")
+    print("✅ TEST 2: Session creation working")
+    print("✅ TEST 3: Document pinning working (returns ok=true, pinned_doc)")
+    print("✅ TEST 4: Session list reflects pinned document")
+    print("✅ TEST 5: GROUNDED ANSWER - Assistant correctly answered using pinned doc context")
+    print(f"           Response included: BLUE-PELICAN-7 and Zara Kovac")
+    print("✅ TEST 6: FOLLOW-UP - Assistant answered follow-up question using pinned doc")
+    print(f"           Response mentioned: floor 42")
+    print("✅ TEST 7: Document unpinning working (pinned_doc becomes null)")
+    print("✅ TEST 8: Error handling working (404 for invalid session)")
+    print("\n" + "="*80)
+    print("ACTUAL ASSISTANT RESPONSES:")
+    print("="*80)
+    print(f"\nQ1: {question1}")
+    print(f"A1: {content}")
+    print(f"\nQ2: {question2}")
+    print(f"A2: {content2}")
+    print("="*80)
 
 if __name__ == "__main__":
-    try:
-        success = main()
-        sys.exit(0 if success else 1)
-    except KeyboardInterrupt:
-        log("\nTest interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        error(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    main()
