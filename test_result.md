@@ -119,6 +119,9 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "Tested via Playwright: /api/auth/login endpoint working correctly. No CORS errors detected. Login request returns 200 with token and Set-Cookie header. Backend authentication is fully functional."
+        -working: true
+        -agent: "testing"
+        -comment: "Re-verified after CORS config change (added allow_origin_regex for Emergent domains). POST /api/auth/login returns 200. All authenticated API calls working correctly (GET /api/orgs, /api/orgs/{id}/members, /api/orgs/{id}/api-keys, /api/orgs/{id}/projects, /api/orgs/{id}/usage all return 200). No CORS errors in console. CORS regex pattern working as expected for preview domain."
 
 frontend:
   - task: "Login page email/password flow (admin login)"
@@ -135,6 +138,9 @@ frontend:
         -working: true
         -agent: "testing"
         -comment: "Tested via Playwright: Admin login flow fully functional. Successfully navigated from home page -> clicked 'Log in' button -> filled email (admin@aiplatform.com) and password (admin12345) -> submitted form -> redirected to /app dashboard. Dashboard displays 'Welcome back, Admin' with organization 'Admin Org'. No CORS errors in console. Login flow working as expected."
+        -working: true
+        -agent: "testing"
+        -comment: "Re-verified after CORS config change (allow_origin_regex for Emergent domains). Complete login flow tested: Landing page -> /login -> credentials filled -> form submitted -> redirected to /app dashboard. 'Welcome back, Admin' message visible. No error toast. No CORS errors. Dashboard data loads correctly with multiple successful API calls. Login flow fully functional after CORS update."
 
 metadata:
   created_by: "main_agent"
@@ -153,3 +159,7 @@ agent_communication:
     -message: "Please verify admin login through the UI. Go to the app, click 'Log in', enter admin@aiplatform.com / admin12345, submit. Verify successful login (redirect to /app dashboard, no CORS error in console). Credentials are in /app/memory/test_credentials.md."
     -agent: "testing"
     -message: "✅ Admin login flow tested and verified working. All tests passed: navigation to login page, form submission, authentication, redirect to dashboard, and no CORS errors. The CORS + .env fix implemented by main agent resolved the reported issue. User can now successfully log in with admin credentials."
+    -agent: "main"
+    -message: "Added allow_origin_regex to CORS config to support all Emergent domains (emergentagent.com and emergent.sh subdomains). Please re-verify the admin login flow to ensure the regex pattern works correctly with the preview domain."
+    -agent: "testing"
+    -message: "✅ PASS - Admin login flow re-verified after CORS config change. Complete test executed: Landing page loaded -> clicked 'Log in' -> navigated to /login -> entered admin@aiplatform.com / admin12345 -> submitted form -> POST /api/auth/login returned 200 -> redirected to /app dashboard -> 'Welcome back, Admin' visible -> NO error toast -> NO CORS errors in console -> Multiple authenticated API calls successful (GET /api/orgs, members, api-keys, projects, usage all return 200). The allow_origin_regex pattern is working correctly for the preview domain. Note: Two 401 responses for /api/auth/me occurred pre-login (expected behavior when checking for existing session). All post-login authenticated calls working perfectly."
