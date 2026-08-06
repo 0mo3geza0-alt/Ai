@@ -101,3 +101,55 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Imported Nexus (Autonomous AI Agent Platform) project from GitHub. User reports admin login (admin@aiplatform.com / admin12345) does not work from the UI."
+
+backend:
+  - task: "Admin email/password login via /api/auth/login + CORS for preview origin"
+    implemented: true
+    working: true
+    file: "backend/server.py, backend/auth/router.py, backend/.env"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Root cause found: backend/.env files were missing after GitHub import (gitignored). Recreated backend/.env (MONGO_URL, DB_NAME, EMERGENT_LLM_KEY, JWT_SECRET) and frontend/.env (REACT_APP_BACKEND_URL). Backend was crash-looping on KeyError MONGO_URL. Also, CORS allow_origins uses FRONTEND_URL env which was unset -> defaulted to localhost:3000, blocking the preview origin. Added FRONTEND_URL to backend/.env pointing to preview URL. Preflight OPTIONS now returns 200 with correct access-control-allow-origin. curl login returns 200 with token + Set-Cookie."
+        -working: true
+        -agent: "testing"
+        -comment: "Tested via Playwright: /api/auth/login endpoint working correctly. No CORS errors detected. Login request returns 200 with token and Set-Cookie header. Backend authentication is fully functional."
+
+frontend:
+  - task: "Login page email/password flow (admin login)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Login.js, frontend/src/context/AuthContext.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "After fixing CORS (FRONTEND_URL) and restoring .env, need to verify admin can log in through the UI and reach /app dashboard."
+        -working: true
+        -agent: "testing"
+        -comment: "Tested via Playwright: Admin login flow fully functional. Successfully navigated from home page -> clicked 'Log in' button -> filled email (admin@aiplatform.com) and password (admin12345) -> submitted form -> redirected to /app dashboard. Dashboard displays 'Welcome back, Admin' with organization 'Admin Org'. No CORS errors in console. Login flow working as expected."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: "Please verify admin login through the UI. Go to the app, click 'Log in', enter admin@aiplatform.com / admin12345, submit. Verify successful login (redirect to /app dashboard, no CORS error in console). Credentials are in /app/memory/test_credentials.md."
+    -agent: "testing"
+    -message: "✅ Admin login flow tested and verified working. All tests passed: navigation to login page, form submission, authentication, redirect to dashboard, and no CORS errors. The CORS + .env fix implemented by main agent resolved the reported issue. User can now successfully log in with admin credentials."
