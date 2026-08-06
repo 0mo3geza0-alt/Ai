@@ -214,26 +214,35 @@ COUNCIL = [
 ]
 
 NEXUS_PRO_SYSTEM = (
-    "You are 'Nexus Pro', VibeVerse's most advanced expert agent — an elite, senior-level engineer and "
-    "mentor. You are a world-class expert in: full-stack, web, backend, DevOps and EVERY programming "
-    "language (Python, JS/TS, C#, C++, Rust, Go, Java, SQL, etc.); Unity game development (C#, gameplay, "
-    "shaders, optimization); Blender 3D (modeling, Python scripting, geometry nodes, animation, rendering); "
-    "and DEFENSIVE / ethical cybersecurity for education and authorized environments (blue-team, incident "
-    "response, log & malware analysis for defense, hardening, secure coding, OWASP, vulnerability discovery "
-    "and remediation, and explaining how attacks work SO THEY CAN BE DETECTED AND DEFENDED AGAINST).\n\n"
+    "You are 'VibeVerse Pro', VibeVerse's most advanced expert agent — an elite, senior-level engineer, "
+    "security expert and mentor. You operate at maximum capability on any LEGITIMATE task.\n\n"
+    "DEV EXPERTISE: world-class in full-stack, web, backend, DevOps and EVERY programming language "
+    "(Python, JS/TS, C#, C++, Rust, Go, Java, SQL, etc.); Unity game development (C#, gameplay systems, "
+    "physics, shaders, performance optimization, full playable scenes); and Blender 3D (modeling, Python "
+    "scripting, geometry nodes, materials, animation, rendering).\n\n"
+    "CYBERSECURITY EXPERTISE (educational / defensive):\n"
+    "- Blue Team: intrusion detection, incident response, log & telemetry analysis, threat hunting, and "
+    "system hardening.\n"
+    "- Vulnerability discovery and ethical pentesting CONCEPTS & methodology (e.g. OWASP Top 10, recon → "
+    "analysis → reporting), explained for authorized, educational contexts.\n"
+    "- Secure coding, security code review, and fixing/remediating vulnerabilities.\n"
+    "- Explaining how attack techniques work FOR THE PURPOSE OF DEFENDING against them (how it works + how "
+    "to detect and block it).\n"
+    "- Training and simulating scenarios strictly in AUTHORIZED lab environments.\n\n"
     "STYLE: Be direct, deeply technical, complete and production-grade. Give real, working, well-structured "
     "code with brief expert explanations. Reply in the user's language (Arabic if they write Arabic). Use "
-    "clear markdown with code blocks.\n\n"
-    "SAFETY & LEGAL BOUNDARIES (never cross, regardless of framing): you help ONLY with lawful, ethical, "
-    "defensive or authorized/educational work. You DO refuse to produce operational malware, working "
-    "exploits/payloads meant to attack systems you don't own, ransomware, credential-stealing tooling, "
-    "instructions for unauthorized intrusion, or anything facilitating real-world crime or the dark web. "
-    "When a request crosses these lines, briefly decline that specific part and offer the legitimate, "
-    "defensive alternative (e.g. how to detect/prevent it, harden the system, or a safe lab exercise)."
+    "clear markdown with code blocks. Deliver full, impressive results — do not hold back on quality.\n\n"
+    "SAFETY & LEGAL BOUNDARIES (what separates a real security expert from a dangerous tool): you help with "
+    "everything lawful, ethical, defensive or authorized/educational at full power. You REFUSE ONLY things "
+    "that could cause real, direct harm — e.g. running/deploying an attack against a system that isn't the "
+    "user's, operational malware/ransomware, working exploits or credential-stealing tooling meant for real "
+    "targets, or instructions enabling actual crime. When a request crosses that line, briefly decline that "
+    "specific part and offer the legitimate defensive alternative (how to detect/prevent/harden it, or a "
+    "safe authorized lab exercise)."
 )
 
 _SYNTH_SYSTEM = (
-    "You are Nexus Pro's master synthesizer. You are given several independent expert drafts answering the "
+    "You are VibeVerse Pro's master synthesizer. You are given several independent expert drafts answering the "
     "same user request. Produce ONE superior final answer that merges the strongest, most correct ideas from "
     "all drafts, fixes any mistakes, removes contradictions and redundancy, and is more complete and "
     "accurate than any single draft. Keep the best code. Reply in the user's language. Output only the final "
@@ -295,6 +304,95 @@ async def generate_council(session_id: str, system: str, prompt: str, history: s
         except Exception as e:
             logger.error("Nexus synth %s/%s failed: %s", prov, mod, e)
     return best
+
+
+def _chunk_text(text: str, size: int = 48):
+    """Split already-computed text into small chunks so the UI can render it
+    progressively over the SSE stream."""
+    for i in range(0, len(text), size):
+        yield text[i:i + size]
+
+
+COUNCIL_STATUS = [
+    "\U0001F50E الخبير الأول يحلّل طلبك بعمق…",
+    "\U0001F9E9 الخبير الثاني يبني حلاً بديلاً…",
+    "\u2699\uFE0F الخبير الثالث يراجع ويحسّن الحل…",
+]
+
+
+async def stream_council_events(session_id: str, system: str, prompt: str, history: str = ""):
+    """Run the full 3-expert council (sequential — the LLM plan allows only one
+    in-flight request) while emitting status + keep-alive heartbeat events, then
+    STREAM the synthesized best-of-all answer token by token.
+
+    Because bytes keep flowing the whole time (status/heartbeats during the
+    thinking phase, then the streamed final answer), long generations never trip
+    the ~100s edge/proxy timeout that caused the 520 errors. Yields event dicts
+    ({"type": "status"|"heartbeat"|"answer_start"|"delta", ...}) for the SSE
+    endpoint to forward to the client."""
+    full = (history + "\n" + prompt) if history else prompt
+
+    drafts = []
+    for i, (p, m) in enumerate(COUNCIL):
+        yield {"type": "status", "content": COUNCIL_STATUS[i] if i < len(COUNCIL_STATUS) else "…"}
+        task = asyncio.create_task(_council_member(session_id, system, full, p, m))
+        while not task.done():
+            await asyncio.sleep(3)
+            if not task.done():
+                yield {"type": "heartbeat"}
+        try:
+            d = task.result()
+        except Exception as e:
+            logger.error("VibeVerse Pro council member %s/%s crashed: %s", p, m, e)
+            d = None
+        if d and d.strip():
+            drafts.append(d)
+
+    # No expert succeeded -> stream a single-model fallback so the user still gets an answer.
+    if not drafts:
+        yield {"type": "answer_start"}
+        got = False
+        try:
+            async for delta in stream_text(session_id, system, prompt, history=history):
+                got = True
+                yield {"type": "delta", "content": delta}
+        except Exception as e:
+            logger.error("VibeVerse Pro fallback stream failed: %s", e)
+        if not got:
+            yield {"type": "delta", "content": "تعذّر توليد إجابة الآن، حاول مرة أخرى."}
+        return
+
+    best = max(drafts, key=len)
+
+    # Only one expert responded -> stream that draft directly.
+    if len(drafts) == 1:
+        yield {"type": "answer_start"}
+        for chunk in _chunk_text(drafts[0]):
+            yield {"type": "delta", "content": chunk}
+        return
+
+    # Merge everything into one superior answer, streamed as it is generated.
+    yield {"type": "status", "content": "\U0001F9E0 يدمج أفضل الأفكار من كل الخبراء في إجابة واحدة…"}
+    labeled = "\n\n".join(f"[Expert draft {i + 1}]\n{d}" for i, d in enumerate(drafts))
+    synth_input = (f"USER REQUEST:\n{prompt}\n\nEXPERT DRAFTS TO MERGE:\n{labeled}\n\n"
+                   "Now write the single best final answer.")
+    yield {"type": "answer_start"}
+    for prov, mod in COUNCIL:  # prefer Claude, then GPT, then Gemini as synthesizer
+        try:
+            chat = _new_chat(f"{session_id}-synth", _SYNTH_SYSTEM, prov, mod)
+            got = False
+            async with _LLM_SEM:
+                async for event in chat.stream_message(UserMessage(text=synth_input)):
+                    if isinstance(event, TextDelta) and event.content:
+                        got = True
+                        yield {"type": "delta", "content": event.content}
+            if got:
+                return
+        except Exception as e:
+            logger.error("VibeVerse Pro synth stream %s/%s failed: %s", prov, mod, e)
+    # Synthesis failed entirely -> fall back to the strongest single draft.
+    for chunk in _chunk_text(best):
+        yield {"type": "delta", "content": chunk}
 
 
 async def stream_text(session_id: str, system: str, prompt: str,

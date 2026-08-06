@@ -20,7 +20,7 @@ export default function SharePage() {
     }).catch(() => setErr(true));
   }, [token]);
 
-  const dlName = c ? `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "nexus"}.${EXT[c.kind] || "bin"}` : "nexus";
+  const dlName = c ? `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "vibeverse"}.${EXT[c.kind] || "bin"}` : "vibeverse";
 
   return (
     <div className="min-h-screen text-[#F8FAFC] relative z-10">

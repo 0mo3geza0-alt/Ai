@@ -60,7 +60,7 @@ export default function Creations() {
     try {
       const res = await api.get(c.url.replace("/api", ""), { responseType: "blob" });
       const url = URL.createObjectURL(res.data);
-      const name = `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "nexus"}.${EXT[c.kind] || "bin"}`;
+      const name = `${(c.title || c.kind).replace(/[^a-z0-9]+/gi, "-").slice(0, 40) || "vibeverse"}.${EXT[c.kind] || "bin"}`;
       const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
       toast.success("Downloaded to your device");
     } catch { toast.error("Download failed"); }

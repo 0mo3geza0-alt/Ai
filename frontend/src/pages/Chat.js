@@ -95,7 +95,7 @@ function ImageBlock({ media }) {
   return (
     <div className="mt-3 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-[#0C0C14]">
       <BlobMedia url={media.url} render={(src) => <img data-testid="chat-image" src={src} alt="" className="w-full h-auto max-h-[420px] object-contain" />} />
-      <div className="p-2"><button onClick={() => downloadBlob(media.url, "nexus-image.png")} className="inline-flex items-center gap-1.5 text-xs text-[#A855F7] hover:underline"><Download className="w-3.5 h-3.5" /> Download</button></div>
+      <div className="p-2"><button onClick={() => downloadBlob(media.url, "vibeverse-image.png")} className="inline-flex items-center gap-1.5 text-xs text-[#A855F7] hover:underline"><Download className="w-3.5 h-3.5" /> Download</button></div>
     </div>
   );
 }
@@ -104,7 +104,7 @@ function VoiceBlock({ media }) {
   return (
     <div className="mt-3 p-3 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#0C0C14]">
       <BlobMedia url={media.url} fallbackH="h-10" render={(src) => <audio data-testid="chat-voice" src={src} controls className="w-full" />} />
-      <button onClick={() => downloadBlob(media.url, "nexus-voice.mp3")} className="inline-flex items-center gap-1.5 mt-2 text-xs text-[#A855F7] hover:underline"><Download className="w-3.5 h-3.5" /> Download</button>
+      <button onClick={() => downloadBlob(media.url, "vibeverse-voice.mp3")} className="inline-flex items-center gap-1.5 mt-2 text-xs text-[#A855F7] hover:underline"><Download className="w-3.5 h-3.5" /> Download</button>
     </div>
   );
 }
@@ -136,7 +136,7 @@ function WebappBlock({ m, media, pollJob }) {
         <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 text-[#A855F7]" /> Live preview</span>
         <div className="flex items-center gap-3">
           <button data-testid="webapp-open-btn" onClick={openFull} className="inline-flex items-center gap-1 hover:text-white transition-colors"><Maximize2 className="w-3.5 h-3.5" /> Open</button>
-          {media?.url && <button onClick={() => downloadBlob(media.url, "nexus-app.html")} className="inline-flex items-center gap-1 hover:text-white transition-colors"><Download className="w-3.5 h-3.5" /> Download</button>}
+          {media?.url && <button onClick={() => downloadBlob(media.url, "vibeverse-app.html")} className="inline-flex items-center gap-1 hover:text-white transition-colors"><Download className="w-3.5 h-3.5" /> Download</button>}
         </div>
       </div>
       {html ? <iframe data-testid="chat-webapp" title="app" srcDoc={html} className="w-full h-[420px] bg-white" sandbox="allow-scripts allow-forms allow-popups allow-modals" /> : <div className="h-40 flex items-center justify-center"><Dots /></div>}
@@ -279,25 +279,26 @@ export default function Chat() {
     setSending(true);
     const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
     try {
-      if (nexusMode) {
-        patchLast((l) => ({ ...l, content: "🔥 Nexus Pro يستشير خبراء VibeVerse المتقدمين للوصول لأفضل إجابة…", _nexus: true }));
-        try {
-          const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/nexus-pro`, { message: text });
-          patchLast(() => ({ role: "assistant", content: data.reply, kind: "nexus", media: null }));
-        } catch (err) {
-          const msg = formatApiErrorDetail(err.response?.data?.detail) || "Nexus Pro error";
-          patchLast((l) => ({ ...l, _streaming: false, content: msg }));
-          toast.error(msg);
-          if (err.response?.status === 403) setNexusMode(false);
-        }
-        return;
-      }
       const token = localStorage.getItem("token");
-      const resp = await fetch(`${API}/orgs/${oid}/chat/sessions/${sid}/agent/stream`, {
+      const url = nexusMode
+        ? `${API}/orgs/${oid}/chat/sessions/${sid}/nexus-pro/stream`
+        : `${API}/orgs/${oid}/chat/sessions/${sid}/agent/stream`;
+      const payload = nexusMode
+        ? { message: text }
+        : { message: text, attachment: useAttach || null };
+      if (nexusMode) patchLast((l) => ({ ...l, content: "🔥 VibeVerse Pro يستشير خبراء VibeVerse المتقدمين للوصول لأفضل إجابة…", _nexus: true }));
+      const resp = await fetch(url, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: text, attachment: useAttach || null }),
+        body: JSON.stringify(payload),
       });
-      if (!resp.ok || !resp.body) { throw new Error(resp.status === 402 ? "Out of credits — upgrade your plan." : "Request failed"); }
+      if (!resp.ok || !resp.body) {
+        let detail = resp.status === 402 ? "Out of credits — upgrade your plan." : "Request failed";
+        if (resp.status === 403) {
+          try { const j = await resp.json(); detail = formatApiErrorDetail(j.detail) || detail; } catch { /* noop */ }
+          setNexusMode(false);
+        }
+        throw new Error(detail);
+      }
       const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = "";
       while (true) {
         const { value, done } = await reader.read();
@@ -308,7 +309,10 @@ export default function Chat() {
           const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
           if (!chunk.startsWith("data: ")) continue;
           const ev = JSON.parse(chunk.slice(6));
-          if (ev.type === "delta") patchLast((l) => ({ ...l, content: (l.content || "") + ev.content }));
+          if (ev.type === "status") patchLast((l) => ({ ...l, content: ev.content, _nexus: true }));
+          else if (ev.type === "heartbeat") { /* keep-alive: nothing to render */ }
+          else if (ev.type === "answer_start") patchLast((l) => ({ ...l, content: "", _nexus: nexusMode, kind: nexusMode ? "nexus" : "text" }));
+          else if (ev.type === "delta") patchLast((l) => ({ ...l, content: (l.content || "") + ev.content }));
           else if (ev.type === "error") { patchLast((l) => ({ ...l, _streaming: false, content: ev.detail || "Something went wrong." })); toast.error(ev.detail || "Something went wrong."); }
           else if (ev.type === "done") {
             const mm = ev.message;
@@ -647,7 +651,7 @@ export default function Chat() {
               type="button"
               data-testid="nexus-toggle-btn"
               onClick={() => {
-                if (!canNexus) { toast.error("Nexus Pro وكيل حصري لمشتركي Premium ($200). قم بالترقية للوصول إليه."); return; }
+                if (!canNexus) { toast.error("VibeVerse Pro وكيل حصري لمشتركي Premium ($200). قم بالترقية للوصول إليه."); return; }
                 setNexusMode((v) => !v);
               }}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
@@ -658,12 +662,12 @@ export default function Chat() {
               title={canNexus ? "وكيل خارق يمزج خبراء VibeVerse المتقدمين" : "حصري للبريميم"}
             >
               {canNexus ? <Zap className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-              Nexus Pro
+              VibeVerse Pro
               <span className="text-[10px]">🔥</span>
               {!canNexus && <span className="ms-1 px-1.5 py-0.5 rounded-full bg-[#A855F7]/20 text-[#C4B5FD] text-[9px]">PRO</span>}
             </button>
             {nexusMode && (
-              <span className="text-[11px] text-[#94A3B8]">مزيج الـ 3 نماذج مُفعّل — أقوى إجابة ممكنة (٨ كريدت/رسالة)</span>
+              <span className="text-[11px] text-[#94A3B8]">مزيج خبراء VibeVerse مُفعّل — أقوى إجابة ممكنة (٨ كريدت/رسالة)</span>
             )}
           </div>
           <div className="max-w-3xl mx-auto flex items-end gap-3">

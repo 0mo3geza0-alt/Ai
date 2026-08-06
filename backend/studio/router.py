@@ -240,12 +240,12 @@ async def _is_premium_or_admin(db, org_id: str, user: dict) -> bool:
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/nexus-pro")
 async def nexus_pro_send(org_id: str, sid: str, body: NexusBody,
                          ctx: dict = Depends(require_permission("file:write"))):
-    """Premium 'Nexus Pro' tri-model council agent (Claude + GPT + Gemini)."""
+    """Premium 'VibeVerse Pro' tri-model council agent (non-streaming legacy path)."""
     db = get_db()
     if not await _is_premium_or_admin(db, org_id, ctx["user"]):
         raise HTTPException(
             status_code=403,
-            detail="Nexus Pro وكيل حصري لمشتركي Premium ($200). قم بترقية خطتك للوصول إليه.")
+            detail="VibeVerse Pro وكيل حصري لمشتركي Premium ($200). قم بترقية خطتك للوصول إليه.")
     session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -258,7 +258,7 @@ async def nexus_pro_send(org_id: str, sid: str, body: NexusBody,
             prompt=f"user: {body.message}", history=context)
     except Exception as e:
         await _refund(db, org_id, "nexus")
-        raise HTTPException(status_code=502, detail=f"Nexus Pro error: {e}")
+        raise HTTPException(status_code=502, detail=f"VibeVerse Pro error: {e}")
     ts = utcnow()
     await db.chat_messages.insert_many([
         {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message,
@@ -275,9 +275,70 @@ async def nexus_pro_send(org_id: str, sid: str, body: NexusBody,
 
 @router.get("/orgs/{org_id}/nexus-pro/access")
 async def nexus_pro_access(org_id: str, ctx: dict = Depends(require_permission("file:read"))):
-    """Lets the frontend know whether the current user can use Nexus Pro."""
+    """Lets the frontend know whether the current user can use VibeVerse Pro."""
     db = get_db()
     return {"allowed": await _is_premium_or_admin(db, org_id, ctx["user"])}
+
+
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/nexus-pro/stream")
+async def nexus_pro_stream(org_id: str, sid: str, body: NexusBody,
+                           ctx: dict = Depends(require_permission("file:write"))):
+    """Streaming 'VibeVerse Pro' — consults the full 3-expert council and streams
+    the synthesized best answer. Streaming keeps the connection alive so large
+    generations (full websites, Unity games, etc.) never hit the edge timeout."""
+    db = get_db()
+    if not await _is_premium_or_admin(db, org_id, ctx["user"]):
+        raise HTTPException(
+            status_code=403,
+            detail="VibeVerse Pro وكيل حصري لمشتركي Premium ($200). قم بترقية خطتك للوصول إليه.")
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    remaining = await _spend(db, org_id, "nexus")
+    _ = remaining
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
+                                       "content": body.message, "kind": "text", "created_at": utcnow()})
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+
+    async def sse(obj):
+        return f"data: {json.dumps(obj)}\n\n"
+
+    async def event_stream():
+        yield await sse({"type": "start"})
+        acc = ""
+        try:
+            async for ev in gateway.stream_council_events(sid, gateway.NEXUS_PRO_SYSTEM,
+                                                           f"user: {body.message}", context):
+                if ev.get("type") == "delta":
+                    acc += ev.get("content", "")
+                yield await sse(ev)
+        except Exception as e:
+            await _refund(db, org_id, "nexus")
+            yield await sse({"type": "error", "detail": f"VibeVerse Pro error: {e}"})
+            return
+        if not acc.strip():
+            await _refund(db, org_id, "nexus")
+            yield await sse({"type": "error", "detail": "تعذّر توليد إجابة الآن، حاول مرة أخرى."})
+            return
+        a_ts = utcnow()
+        adoc = {"session_id": sid, "org_id": org_id, "role": "assistant",
+                "content": acc, "kind": "nexus", "media": None, "created_at": a_ts}
+        res = await db.chat_messages.insert_one(adoc)
+        upd = {"updated_at": a_ts}
+        if session.get("title", "New chat") == "New chat":
+            upd["title"] = body.message[:40]
+        await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
+        org = await db.organizations.find_one({"_id": ObjectId(org_id)})
+        yield await sse({"type": "done",
+                         "message": {"id": str(res.inserted_id), "role": "assistant",
+                                     "content": acc, "kind": "nexus", "media": None},
+                         "credits": org.get("credits", 0) if org else 0,
+                         "title": upd.get("title", session.get("title"))})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                                      "Connection": "keep-alive"})
 
 
 WEBAPP_SYSTEM = (

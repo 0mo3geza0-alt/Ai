@@ -9,7 +9,7 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY") or "sk_test_emergent"
 CATALOG = [
     {
         "emergent_product_id": "pro_plan",
-        "name": "Nexus Pro",
+        "name": "VibeVerse Pro",
         "tax_code": "txcd_10103001",  # SaaS
         "prices": [
             {"lookup_key": "pro_monthly", "amount": 1900, "currency": "usd", "interval": "month"},
@@ -18,7 +18,7 @@ CATALOG = [
     },
     {
         "emergent_product_id": "business_plan",
-        "name": "Nexus Business",
+        "name": "VibeVerse Business",
         "tax_code": "txcd_10103001",
         "prices": [
             {"lookup_key": "business_monthly", "amount": 4900, "currency": "usd", "interval": "month"},
@@ -46,7 +46,7 @@ def ensure_tax_settings():
         if s.get("head_office") and s["head_office"].get("address"):
             return
         stripe.tax.Settings.modify(
-            head_office={"address": {"country": "GB", "line1": "1 Nexus Way",
+            head_office={"address": {"country": "GB", "line1": "1 VibeVerse Way",
                                      "city": "London", "postal_code": "EC1A 1BB"}},
             defaults={"tax_behavior": "exclusive"},
         )
