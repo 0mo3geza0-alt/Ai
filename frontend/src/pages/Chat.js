@@ -168,6 +168,9 @@ export default function Chat() {
   const [companion, setCompanion] = useState(null);
   const recogRef = useRef(null);
   const audioRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const sourceRef = useRef(null);
+  const pendingAudioRef = useRef(null);
   const voiceOpenRef = useRef(false);
   const activeRef = useRef(null);
   const voiceRef = useRef("nova");
@@ -294,16 +297,43 @@ export default function Chat() {
   };
 
   // ---------------- Live voice conversation ----------------
-  // A tiny silent clip used to "unlock" audio playback inside the user's click gesture,
-  // so the assistant's replies can auto-play afterwards (browser autoplay policy).
+  // A tiny silent clip used to "unlock" the HTMLAudio fallback inside the user's click gesture.
   const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
 
   const getAudioEl = () => {
-    if (!audioRef.current) { audioRef.current = new Audio(); audioRef.current.preload = "auto"; }
+    if (!audioRef.current) { audioRef.current = new Audio(); audioRef.current.preload = "auto"; audioRef.current.playsInline = true; }
     return audioRef.current;
   };
 
+  // Web Audio API is the most reliable way to play audio that arrives seconds after the
+  // last user gesture (immune to the <audio> autoplay re-lock on Chrome/Safari/iOS).
+  const getAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtxRef.current = new AC();
+    }
+    if (typeof window !== "undefined") window.__vibeAudioCtx = audioCtxRef.current || null;
+    return audioCtxRef.current;
+  };
+
+  const b64ToArrayBuffer = (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  };
+
+  const decodeAudio = (ctx, arr) => new Promise((resolve, reject) => {
+    try {
+      const p = ctx.decodeAudioData(arr, resolve, reject); // callback form (older Safari)
+      if (p && p.then) p.then(resolve).catch(reject);       // promise form (modern)
+    } catch (e) { reject(e); }
+  });
+
+  // Unlock BOTH the AudioContext and the HTMLAudio fallback element within a user gesture.
   const unlockAudio = () => {
+    const ctx = getAudioCtx();
+    if (ctx && ctx.state === "suspended") { ctx.resume().catch(() => {}); }
     const el = getAudioEl();
     try {
       el.src = SILENT_WAV; el.muted = true;
@@ -313,7 +343,11 @@ export default function Chat() {
     } catch { /* noop */ }
   };
 
-  const stopAudio = () => { try { audioRef.current?.pause(); } catch { /* noop */ } };
+  const stopAudio = () => {
+    try { sourceRef.current?.stop(); } catch { /* noop */ }
+    sourceRef.current = null;
+    try { audioRef.current?.pause(); } catch { /* noop */ }
+  };
 
   const stopVoiceMode = () => {
     voiceOpenRef.current = false;
@@ -364,24 +398,54 @@ export default function Chat() {
 
   const vStatusIsListening = () => recogRef.current !== null;
 
-  // Speak a reply through the single unlocked audio element (reliable auto-play);
-  // if the browser still blocks it, surface a "tap to hear" button so audio is never lost.
-  const speak = (b64, mime) => {
+  // Play a reply. Primary path: Web Audio API (decode + buffer source) which plays reliably
+  // even seconds after the last gesture. Fallback: HTMLAudio via Blob URL. Final fallback:
+  // a visible "tap to hear" button so the voice reply is never lost.
+  const onSpokenEnd = () => { setTapToHear(false); if (voiceOpenRef.current) listen(); else setVStatus("idle"); };
+
+  const speakHtmlAudio = (b64, mime) => {
     const el = getAudioEl();
     el.muted = false;
-    el.onended = () => { setTapToHear(false); if (voiceOpenRef.current) listen(); else setVStatus("idle"); };
-    el.onerror = () => { if (voiceOpenRef.current) listen(); };
-    el.src = `data:${mime || "audio/mpeg"};base64,${b64}`;
-    setVStatus("speaking");
+    let url;
+    try {
+      const bytes = new Uint8Array(b64ToArrayBuffer(b64));
+      url = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/mpeg" }));
+    } catch { setTapToHear(true); return; }
+    el.onended = () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } onSpokenEnd(); };
+    el.onerror = () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } setTapToHear(true); };
+    el.src = url;
+    try { el.load(); } catch { /* noop */ }
     const p = el.play();
-    if (p?.catch) p.catch(() => { setTapToHear(true); setVStatus("speaking"); });
+    if (p?.catch) p.catch(() => { setTapToHear(true); });
+  };
+
+  const speak = async (b64, mime) => {
+    pendingAudioRef.current = { b64, mime };
+    setVStatus("speaking");
+    setTapToHear(false);
+    const ctx = getAudioCtx();
+    if (ctx) {
+      try {
+        if (ctx.state === "suspended") { await ctx.resume(); }
+        const buf = await decodeAudio(ctx, b64ToArrayBuffer(b64));
+        try { sourceRef.current?.stop(); } catch { /* noop */ }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.onended = () => { if (sourceRef.current === src) { sourceRef.current = null; onSpokenEnd(); } };
+        sourceRef.current = src;
+        src.start(0);
+        return;
+      } catch { /* fall through to HTMLAudio */ }
+    }
+    speakHtmlAudio(b64, mime);
   };
 
   const playPending = () => {
-    const el = getAudioEl();
+    const pa = pendingAudioRef.current;
     setTapToHear(false);
-    const p = el.play();
-    if (p?.catch) p.catch(() => { if (voiceOpenRef.current) listen(); });
+    if (pa) speak(pa.b64, pa.mime);
+    else if (voiceOpenRef.current) listen();
   };
 
   const handleVoiceTurn = async (said) => {
