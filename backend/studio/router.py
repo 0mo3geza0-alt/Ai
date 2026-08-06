@@ -94,6 +94,14 @@ class AudioBody(BaseModel):
 class VoiceChatBody(BaseModel):
     message: str
     voice: str = "nova"
+    agent: str | None = None      # voice-agent id (personality + default voice)
+    adult_ok: bool = False        # user confirmed 18+ for adult agents
+
+
+class VoiceSampleBody(BaseModel):
+    agent: str | None = None
+    voice: str | None = None
+    text: str | None = None
 
 
 def _iso(v):
@@ -695,6 +703,29 @@ VOICE_CHAT_SYSTEM = (
 )
 
 
+@router.get("/voice-agents")
+async def list_voice_agents(current_user: dict = Depends(get_current_user)):
+    """Selectable AI voice companions for onboarding + voice mode."""
+    return {"agents": [gateway.voice_agent_public(a) for a in gateway.VOICE_AGENTS],
+            "voices": gateway.TTS_VOICES}
+
+
+@router.post("/orgs/{org_id}/voice-sample")
+async def voice_sample(org_id: str, body: VoiceSampleBody, ctx: dict = Depends(require_permission("file:read"))):
+    """A short spoken preview of an agent/voice (not charged, not saved)."""
+    agent = gateway.VOICE_AGENTS_BY_ID.get(body.agent) if body.agent else None
+    voice = (body.voice or (agent or {}).get("voice") or "nova")
+    speed = (agent or {}).get("speed", 1.0)
+    name = (agent or {}).get("name", "your assistant")
+    text = (body.text or "").strip() or f"Hey there, I'm {name}. This is how I sound — let's create something amazing together."
+    try:
+        audio = await gateway.generate_audio(text[:220], voice=voice, speed=speed)
+        return {"audio": base64.b64encode(audio).decode("ascii"), "mime": "audio/mpeg"}
+    except Exception as e:
+        logger.error("Voice sample failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not generate voice sample")
+
+
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/voice-chat")
 async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Depends(require_permission("file:write"))):
     """One spoken conversational turn: store user text, generate a concise reply + TTS audio (base64).
@@ -708,6 +739,16 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
         raise HTTPException(status_code=400, detail="Empty message")
     user_id = ctx["user"]["id"]
 
+    # Resolve the chosen voice companion (personality + voice + speed).
+    agent = gateway.VOICE_AGENTS_BY_ID.get(body.agent) if body.agent else None
+    if agent and agent.get("adult"):
+        confirmed = body.adult_ok or bool((ctx["user"].get("preferences") or {}).get("adult_confirmed"))
+        if not confirmed:
+            raise HTTPException(status_code=403, detail="Age confirmation (18+) required for this companion.")
+    system = VOICE_CHAT_SYSTEM + (("\n\n" + agent["persona"]) if agent else "")
+    voice = body.voice or (agent or {}).get("voice") or "nova"
+    speed = (agent or {}).get("speed", 1.0)
+
     await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
                                        "content": msg, "kind": "text", "media": None, "created_at": utcnow()})
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
@@ -715,7 +756,7 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
 
     remaining = await _spend(db, org_id, "chat")
     try:
-        reply = await gateway.generate_text(session_id=sid, system=VOICE_CHAT_SYSTEM,
+        reply = await gateway.generate_text(session_id=sid, system=system,
                                              prompt=msg, history=context)
     except Exception as e:
         await _refund(db, org_id, "chat")
@@ -724,7 +765,7 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
 
     audio_b64 = None
     try:
-        audio = await gateway.generate_audio(reply, voice=body.voice)
+        audio = await gateway.generate_audio(reply, voice=voice, speed=speed)
         audio_b64 = base64.b64encode(audio).decode("ascii")
     except Exception as e:
         logger.error("Voice-chat TTS failed: %s", e)

@@ -17,6 +17,7 @@ def serialize_user(u: dict) -> dict:
         "auth_provider": u.get("auth_provider", "local"),
         "default_org_id": u.get("default_org_id"),
         "suspended": u.get("suspended", False),
+        "preferences": u.get("preferences") or {},
         "created_at": _iso(u.get("created_at")),
     }
 

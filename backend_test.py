@@ -1,485 +1,586 @@
 #!/usr/bin/env python3
 """
-Comprehensive backend test for Agent Marketplace + autonomous scheduling feature.
-Tests all 9 scenarios from the review request.
+Comprehensive backend test for NEW voice-companion features in VibeVerse.
+Tests A-G as specified in the review_request.
 """
-import requests
-import time
-import sys
 import os
+import sys
+import requests
+import base64
+import json
 
-# Base URL from frontend/.env
-BASE_URL = "https://git-project-tool.preview.emergentagent.com/api"
+# Backend URL from frontend/.env
+BACKEND_URL = "https://git-project-tool.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@aiplatform.com"
 ADMIN_PASSWORD = "admin12345"
 
-def log(msg):
-    print(f"[TEST] {msg}")
-
-def test_login():
-    """Login and get Bearer token."""
-    log("Step 0: Login as admin...")
-    resp = requests.post(f"{BASE_URL}/auth/login", json={
+def login():
+    """Login and return Bearer token + org_id."""
+    print("🔐 Logging in as admin...")
+    resp = requests.post(f"{BACKEND_URL}/auth/login", json={
         "email": ADMIN_EMAIL,
         "password": ADMIN_PASSWORD
     })
     if resp.status_code != 200:
-        log(f"❌ Login failed: {resp.status_code} {resp.text}")
+        print(f"❌ Login failed: {resp.status_code} {resp.text}")
         sys.exit(1)
     data = resp.json()
-    token = data.get("token")
-    if not token:
-        log(f"❌ No token in response: {data}")
-        sys.exit(1)
-    log(f"✅ Login successful, token: {token[:20]}...")
-    return token
-
-def get_org_id(token):
-    """Get org_id from /api/auth/me."""
-    log("Getting org_id from /api/auth/me...")
-    resp = requests.get(f"{BASE_URL}/auth/me", headers={"Authorization": f"Bearer {token}"})
+    token = data["token"]
+    print(f"✅ Login successful, token: {token[:20]}...")
+    
+    # Get org_id
+    resp = requests.get(f"{BACKEND_URL}/auth/me", headers={"Authorization": f"Bearer {token}"})
     if resp.status_code != 200:
-        log(f"❌ Failed to get user info: {resp.status_code} {resp.text}")
+        print(f"❌ Failed to get user info: {resp.status_code} {resp.text}")
         sys.exit(1)
-    data = resp.json()
-    org_id = data.get("default_org_id")
-    if not org_id:
-        log(f"❌ No default_org_id in response: {data}")
-        sys.exit(1)
-    log(f"✅ Org ID: {org_id}")
-    return org_id
+    user = resp.json()
+    org_id = user.get("default_org_id")
+    print(f"✅ Org ID: {org_id}")
+    return token, org_id
 
-def test_1_marketplace_list(token):
-    """TEST 1: GET /api/agents/marketplace -> expect 200, list of 6 templates."""
-    log("\n=== TEST 1: MARKETPLACE LIST ===")
-    resp = requests.get(f"{BASE_URL}/agents/marketplace", headers={"Authorization": f"Bearer {token}"})
+
+def test_a_voice_agents_list(token):
+    """TEST A: GET /api/voice-agents -> 200 with agents and voices."""
+    print("\n" + "="*80)
+    print("TEST A: GET /api/voice-agents")
+    print("="*80)
+    
+    resp = requests.get(f"{BACKEND_URL}/voice-agents", headers={"Authorization": f"Bearer {token}"})
+    print(f"Status: {resp.status_code}")
     
     if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        log(f"Response: {resp.text}")
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        print(f"Response: {resp.text}")
         return False
     
     data = resp.json()
-    if not isinstance(data, list):
-        log(f"❌ FAIL: Expected list, got {type(data)}")
+    print(f"Response keys: {list(data.keys())}")
+    
+    # Check structure
+    if "agents" not in data or "voices" not in data:
+        print(f"❌ FAIL: Missing 'agents' or 'voices' in response")
         return False
     
-    if len(data) != 6:
-        log(f"❌ FAIL: Expected 6 templates, got {len(data)}")
+    agents = data["agents"]
+    voices = data["voices"]
+    
+    print(f"✅ Response has 'agents' and 'voices' fields")
+    print(f"Agents count: {len(agents)}")
+    print(f"Voices count: {len(voices)}")
+    
+    # Check voices: must be 9 strings
+    if not isinstance(voices, list) or len(voices) != 9:
+        print(f"❌ FAIL: Expected 9 voices, got {len(voices)}")
         return False
+    print(f"✅ Voices: {voices}")
     
-    # Check each template has required fields
-    required_fields = ["id", "name", "emoji", "description", "role", "tools"]
-    for i, template in enumerate(data):
-        for field in required_fields:
-            if field not in template:
-                log(f"❌ FAIL: Template {i} missing field '{field}'")
-                return False
+    # Check agents: must be 7
+    if len(agents) != 7:
+        print(f"❌ FAIL: Expected 7 agents, got {len(agents)}")
+        return False
+    print(f"✅ Agents count: 7")
     
-    log(f"✅ PASS: Marketplace returned 6 templates with all required fields")
-    log(f"Templates: {', '.join([t['name'] for t in data])}")
+    # Check agent IDs
+    expected_ids = {"vera", "atlas", "sage", "echo", "luna", "blaze", "raven"}
+    actual_ids = {a["id"] for a in agents}
+    if actual_ids != expected_ids:
+        print(f"❌ FAIL: Expected agent IDs {expected_ids}, got {actual_ids}")
+        return False
+    print(f"✅ Agent IDs: {actual_ids}")
+    
+    # Check adult flags
+    adult_agents = {a["id"] for a in agents if a.get("adult") == True}
+    non_adult_agents = {a["id"] for a in agents if a.get("adult") == False}
+    
+    if adult_agents != {"blaze", "raven"}:
+        print(f"❌ FAIL: Expected blaze and raven to have adult=true, got {adult_agents}")
+        return False
+    print(f"✅ Adult agents (adult=true): {adult_agents}")
+    
+    if non_adult_agents != {"vera", "atlas", "sage", "echo", "luna"}:
+        print(f"❌ FAIL: Expected vera, atlas, sage, echo, luna to have adult=false, got {non_adult_agents}")
+        return False
+    print(f"✅ Non-adult agents (adult=false): {non_adult_agents}")
+    
+    # Check agent fields
+    required_fields = {"id", "name", "emoji", "gender", "tagline", "voice", "color", "adult"}
+    for agent in agents:
+        if not required_fields.issubset(agent.keys()):
+            print(f"❌ FAIL: Agent {agent.get('id')} missing required fields")
+            print(f"   Expected: {required_fields}")
+            print(f"   Got: {set(agent.keys())}")
+            return False
+    print(f"✅ All agents have required fields: {required_fields}")
+    
+    print("\n✅ TEST A: PASS")
     return True
 
-def test_2_hire_agent(token, org_id):
-    """TEST 2: Hire research-analyst agent and verify it appears in agent list."""
-    log("\n=== TEST 2: HIRE AGENT ===")
+
+def test_b_voice_sample(token, org_id):
+    """TEST B: POST /api/orgs/{org}/voice-sample -> 200 with audio base64 MP3, not charged."""
+    print("\n" + "="*80)
+    print("TEST B: POST /api/orgs/{org}/voice-sample")
+    print("="*80)
     
-    # Hire the agent
-    resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/agents/hire",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"template_id": "research-analyst"}
-    )
+    # Get credits before
+    resp = requests.get(f"{BACKEND_URL}/orgs/{org_id}/usage", headers={"Authorization": f"Bearer {token}"})
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not get usage: {resp.status_code}")
+        return False
+    credits_before = resp.json()["credits"]
+    print(f"Credits before: {credits_before}")
+    
+    # Request voice sample
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/voice-sample", 
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"agent": "vera"})
+    print(f"Status: {resp.status_code}")
     
     if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        log(f"Response: {resp.text}")
-        return False, None
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        print(f"Response: {resp.text}")
+        return False
     
     data = resp.json()
+    print(f"Response keys: {list(data.keys())}")
     
-    # Verify response structure
-    if not data.get("id"):
-        log(f"❌ FAIL: No 'id' in response")
-        return False, None
+    # Check structure
+    if "audio" not in data or "mime" not in data:
+        print(f"❌ FAIL: Missing 'audio' or 'mime' in response")
+        return False
     
-    if data.get("name") != "Research Analyst":
-        log(f"❌ FAIL: Expected name 'Research Analyst', got '{data.get('name')}'")
-        return False, None
+    audio_b64 = data["audio"]
+    mime = data["mime"]
     
-    if not data.get("role"):
-        log(f"❌ FAIL: No 'role' in response")
-        return False, None
+    if mime != "audio/mpeg":
+        print(f"❌ FAIL: Expected mime='audio/mpeg', got '{mime}'")
+        return False
+    print(f"✅ MIME type: {mime}")
     
-    if not isinstance(data.get("tools"), list):
-        log(f"❌ FAIL: 'tools' should be a list")
-        return False, None
+    # Decode base64
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+    except Exception as e:
+        print(f"❌ FAIL: Could not decode base64 audio: {e}")
+        return False
     
-    if data.get("schedule") is not None:
-        log(f"❌ FAIL: Expected schedule=null for new agent, got {data.get('schedule')}")
-        return False, None
+    if len(audio_bytes) == 0:
+        print(f"❌ FAIL: Audio bytes are empty")
+        return False
     
-    agent_id = data["id"]
-    log(f"✅ Agent hired successfully: id={agent_id}, name={data['name']}")
+    print(f"✅ Audio decoded: {len(audio_bytes)} bytes")
     
-    # Verify agent appears in list
-    resp = requests.get(
-        f"{BASE_URL}/orgs/{org_id}/agents",
-        headers={"Authorization": f"Bearer {token}"}
-    )
+    # Check MP3 signature (ID3 or MP3 frame sync)
+    is_mp3 = audio_bytes[:3] == b'ID3' or (audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0)
+    if not is_mp3:
+        print(f"⚠️  Warning: Audio does not start with ID3 or MP3 frame sync (first 4 bytes: {audio_bytes[:4].hex()})")
+    else:
+        print(f"✅ Audio is valid MP3 (starts with ID3 or frame sync)")
+    
+    # Get credits after
+    resp = requests.get(f"{BACKEND_URL}/orgs/{org_id}/usage", headers={"Authorization": f"Bearer {token}"})
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not get usage after: {resp.status_code}")
+        return False
+    credits_after = resp.json()["credits"]
+    print(f"Credits after: {credits_after}")
+    
+    if credits_before != credits_after:
+        print(f"❌ FAIL: Credits changed! Before: {credits_before}, After: {credits_after}")
+        print(f"   Voice sample should NOT be charged")
+        return False
+    print(f"✅ Credits unchanged (sample not charged)")
+    
+    print("\n✅ TEST B: PASS")
+    return True
+
+
+def test_c_preferences(token):
+    """TEST C: PUT /api/auth/me/preferences -> 200, GET /api/auth/me shows preferences."""
+    print("\n" + "="*80)
+    print("TEST C: PUT /api/auth/me/preferences")
+    print("="*80)
+    
+    # Set preferences
+    resp = requests.put(f"{BACKEND_URL}/auth/me/preferences",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json={"voice_agent": "atlas", "voice": "onyx"})
+    print(f"PUT Status: {resp.status_code}")
     
     if resp.status_code != 200:
-        log(f"❌ FAIL: Failed to get agent list: {resp.status_code}")
-        return False, None
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        print(f"Response: {resp.text}")
+        return False
     
-    agents = resp.json()
-    found = False
-    for agent in agents:
-        if agent.get("id") == agent_id:
-            found = True
-            break
+    print(f"✅ PUT preferences successful")
     
-    if not found:
-        log(f"❌ FAIL: Hired agent {agent_id} not found in agent list")
-        return False, None
+    # Get user info
+    resp = requests.get(f"{BACKEND_URL}/auth/me", headers={"Authorization": f"Bearer {token}"})
+    print(f"GET Status: {resp.status_code}")
     
-    log(f"✅ PASS: Hired agent appears in GET /api/orgs/{org_id}/agents")
-    return True, agent_id
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    user = resp.json()
+    prefs = user.get("preferences", {})
+    print(f"Preferences: {prefs}")
+    
+    if prefs.get("voice_agent") != "atlas":
+        print(f"❌ FAIL: Expected voice_agent='atlas', got '{prefs.get('voice_agent')}'")
+        return False
+    print(f"✅ voice_agent: atlas")
+    
+    if prefs.get("voice") != "onyx":
+        print(f"❌ FAIL: Expected voice='onyx', got '{prefs.get('voice')}'")
+        return False
+    print(f"✅ voice: onyx")
+    
+    if prefs.get("onboarded") != True:
+        print(f"❌ FAIL: Expected onboarded=true, got '{prefs.get('onboarded')}'")
+        return False
+    print(f"✅ onboarded: true")
+    
+    print("\n✅ TEST C: PASS")
+    return True
 
-def test_3_hire_bad_template(token, org_id):
-    """TEST 3: Hire with non-existent template_id -> expect 404."""
-    log("\n=== TEST 3: HIRE BAD TEMPLATE ===")
+
+def test_d_voice_chat_normal(token, org_id):
+    """TEST D: Voice chat with normal agent (atlas), check credits decrease by 1."""
+    print("\n" + "="*80)
+    print("TEST D: POST /api/orgs/{org}/chat/sessions/{sid}/voice-chat (normal agent)")
+    print("="*80)
     
-    resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/agents/hire",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"template_id": "does-not-exist"}
-    )
+    # Create session
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={})
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not create session: {resp.status_code}")
+        return False, None
+    sid = resp.json()["id"]
+    print(f"✅ Session created: {sid}")
+    
+    # Get credits before
+    resp = requests.get(f"{BACKEND_URL}/orgs/{org_id}/usage", headers={"Authorization": f"Bearer {token}"})
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not get usage: {resp.status_code}")
+        return False, sid
+    credits_before = resp.json()["credits"]
+    print(f"Credits before: {credits_before}")
+    
+    # Voice chat
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "Hello, what can you help me with?",
+                            "agent": "atlas",
+                            "voice": "onyx"
+                        })
+    print(f"Status: {resp.status_code}")
+    
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        print(f"Response: {resp.text}")
+        return False, sid
+    
+    data = resp.json()
+    print(f"Response keys: {list(data.keys())}")
+    
+    # Check structure
+    required_fields = {"reply", "audio", "mime", "credits"}
+    if not required_fields.issubset(data.keys()):
+        print(f"❌ FAIL: Missing required fields")
+        print(f"   Expected: {required_fields}")
+        print(f"   Got: {set(data.keys())}")
+        return False, sid
+    
+    reply = data["reply"]
+    audio_b64 = data["audio"]
+    mime = data["mime"]
+    credits_returned = data["credits"]
+    
+    print(f"✅ All required fields present")
+    print(f"Reply: {reply}")
+    print(f"Reply length: {len(reply)} chars")
+    
+    if not reply or len(reply) == 0:
+        print(f"❌ FAIL: Reply is empty")
+        return False, sid
+    print(f"✅ Reply is non-empty")
+    
+    if mime != "audio/mpeg":
+        print(f"❌ FAIL: Expected mime='audio/mpeg', got '{mime}'")
+        return False, sid
+    print(f"✅ MIME: {mime}")
+    
+    # Decode audio
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+    except Exception as e:
+        print(f"❌ FAIL: Could not decode base64 audio: {e}")
+        return False, sid
+    
+    if len(audio_bytes) == 0:
+        print(f"❌ FAIL: Audio bytes are empty")
+        return False, sid
+    
+    print(f"✅ Audio decoded: {len(audio_bytes)} bytes")
+    
+    # Check MP3 signature
+    is_mp3 = audio_bytes[:3] == b'ID3' or (audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0)
+    if not is_mp3:
+        print(f"⚠️  Warning: Audio does not start with ID3 or MP3 frame sync")
+    else:
+        print(f"✅ Audio is valid MP3")
+    
+    # Check credits
+    if not isinstance(credits_returned, int):
+        print(f"❌ FAIL: Credits is not an integer: {type(credits_returned)}")
+        return False, sid
+    print(f"✅ Credits is integer: {credits_returned}")
+    
+    expected_credits = credits_before - 1
+    if credits_returned != expected_credits:
+        print(f"❌ FAIL: Expected credits={expected_credits}, got {credits_returned}")
+        print(f"   Credits should decrease by exactly 1")
+        return False, sid
+    print(f"✅ Credits decreased by exactly 1 (from {credits_before} to {credits_returned})")
+    
+    print(f"\n📝 ACTUAL REPLY TEXT (TEST D):")
+    print(f"   {reply}")
+    
+    print("\n✅ TEST D: PASS")
+    return True, sid
+
+
+def test_e_adult_gate(token, org_id):
+    """TEST E: Adult gate - 403 without confirmation, 200 after confirmation."""
+    print("\n" + "="*80)
+    print("TEST E: Adult gate for blaze agent")
+    print("="*80)
+    
+    # Create session
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={})
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not create session: {resp.status_code}")
+        return False
+    sid = resp.json()["id"]
+    print(f"✅ Session created: {sid}")
+    
+    # Try voice chat with blaze WITHOUT adult_ok (should fail 403)
+    print("\n--- Attempt 1: blaze with adult_ok=false (should fail 403) ---")
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "hey",
+                            "agent": "blaze",
+                            "adult_ok": False
+                        })
+    print(f"Status: {resp.status_code}")
+    
+    if resp.status_code != 403:
+        print(f"❌ FAIL: Expected 403, got {resp.status_code}")
+        print(f"Response: {resp.text}")
+        return False
+    print(f"✅ Got 403 as expected (adult confirmation required)")
+    
+    # Set adult_confirmed in preferences
+    print("\n--- Setting adult_confirmed=true in preferences ---")
+    resp = requests.put(f"{BACKEND_URL}/auth/me/preferences",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json={"voice_agent": "blaze", "adult_confirmed": True})
+    print(f"PUT Status: {resp.status_code}")
+    
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Could not set preferences: {resp.status_code}")
+        return False
+    print(f"✅ Preferences updated with adult_confirmed=true")
+    
+    # Retry voice chat with blaze WITH adult_ok=true (should succeed)
+    print("\n--- Attempt 2: blaze with adult_ok=true (should succeed 200) ---")
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "hey there",
+                            "agent": "blaze",
+                            "adult_ok": True
+                        })
+    print(f"Status: {resp.status_code}")
+    
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        print(f"Response: {resp.text}")
+        return False
+    
+    data = resp.json()
+    reply = data.get("reply", "")
+    audio_b64 = data.get("audio", "")
+    
+    print(f"✅ Got 200 with reply and audio")
+    print(f"Reply: {reply}")
+    print(f"Audio length: {len(audio_b64)} chars (base64)")
+    
+    if not reply:
+        print(f"❌ FAIL: Reply is empty")
+        return False
+    
+    if not audio_b64:
+        print(f"❌ FAIL: Audio is empty")
+        return False
+    
+    print(f"\n📝 ACTUAL REPLY TEXT (TEST E - retried):")
+    print(f"   {reply}")
+    
+    print("\n✅ TEST E: PASS")
+    return True
+
+
+def test_f_identity(token, org_id, sid):
+    """TEST F: Identity check - reply must not contain forbidden keywords."""
+    print("\n" + "="*80)
+    print("TEST F: Identity check in voice-chat replies")
+    print("="*80)
+    
+    # We already have replies from test D, but let's do another explicit check
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "Who are you? What company made you?",
+                            "agent": "atlas",
+                            "voice": "onyx"
+                        })
+    print(f"Status: {resp.status_code}")
+    
+    if resp.status_code != 200:
+        print(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    data = resp.json()
+    reply = data.get("reply", "")
+    print(f"Reply: {reply}")
+    
+    # Check for forbidden keywords (case-insensitive)
+    forbidden = ["openai", "chatgpt", "gpt", "anthropic", "claude", "google", "gemini", "llama"]
+    reply_lower = reply.lower()
+    
+    found_forbidden = []
+    for keyword in forbidden:
+        if keyword in reply_lower:
+            found_forbidden.append(keyword)
+    
+    if found_forbidden:
+        print(f"❌ FAIL: Reply contains forbidden keywords: {found_forbidden}")
+        print(f"   Reply: {reply}")
+        return False
+    
+    print(f"✅ Reply does NOT contain any forbidden keywords")
+    print(f"   Checked: {forbidden}")
+    
+    print("\n✅ TEST F: PASS")
+    return True
+
+
+def test_g_errors(token, org_id):
+    """TEST G: Error handling - 404 for non-existent session, 400 for empty message."""
+    print("\n" + "="*80)
+    print("TEST G: Error handling")
+    print("="*80)
+    
+    # Test 1: Non-existent session (random 24-hex ObjectId)
+    print("\n--- Test G1: Non-existent session (should return 404) ---")
+    fake_sid = "123456789012345678901234"
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{fake_sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "hello",
+                            "agent": "vera",
+                            "voice": "nova"
+                        })
+    print(f"Status: {resp.status_code}")
     
     if resp.status_code != 404:
-        log(f"❌ FAIL: Expected 404, got {resp.status_code}")
-        log(f"Response: {resp.text}")
+        print(f"❌ FAIL: Expected 404, got {resp.status_code}")
         return False
+    print(f"✅ Got 404 for non-existent session")
     
-    log(f"✅ PASS: Bad template correctly returns 404")
-    return True
-
-def test_4_set_schedule(token, org_id, agent_id):
-    """TEST 4: Set schedule with cadence='5min', enabled=true."""
-    log("\n=== TEST 4: SET SCHEDULE ===")
-    
-    resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/agents/{agent_id}/schedule",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "cadence": "5min",
-            "input": "Reply with exactly the single word: PONG",
-            "enabled": True
-        }
-    )
-    
+    # Test 2: Empty/whitespace message (should return 400)
+    print("\n--- Test G2: Empty message (should return 400) ---")
+    # Create a valid session first
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={})
     if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        log(f"Response: {resp.text}")
+        print(f"❌ FAIL: Could not create session: {resp.status_code}")
         return False
+    sid = resp.json()["id"]
     
-    data = resp.json()
-    schedule = data.get("schedule")
-    
-    if not schedule:
-        log(f"❌ FAIL: No 'schedule' in response")
-        return False
-    
-    if schedule.get("enabled") != True:
-        log(f"❌ FAIL: Expected schedule.enabled=true, got {schedule.get('enabled')}")
-        return False
-    
-    if schedule.get("cadence") != "5min":
-        log(f"❌ FAIL: Expected schedule.cadence='5min', got '{schedule.get('cadence')}'")
-        return False
-    
-    if not schedule.get("next_run"):
-        log(f"❌ FAIL: Expected schedule.next_run to be set, got {schedule.get('next_run')}")
-        return False
-    
-    log(f"✅ PASS: Schedule set successfully")
-    log(f"  - enabled: {schedule.get('enabled')}")
-    log(f"  - cadence: {schedule.get('cadence')}")
-    log(f"  - next_run: {schedule.get('next_run')}")
-    log(f"  - input: {schedule.get('input')}")
-    return True
-
-def test_5_bad_cadence(token, org_id, agent_id):
-    """TEST 5: Set schedule with invalid cadence -> expect 400."""
-    log("\n=== TEST 5: BAD CADENCE ===")
-    
-    resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/agents/{agent_id}/schedule",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "cadence": "yearly",
-            "input": "x",
-            "enabled": True
-        }
-    )
+    resp = requests.post(f"{BACKEND_URL}/orgs/{org_id}/chat/sessions/{sid}/voice-chat",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "message": "   ",
+                            "agent": "vera",
+                            "voice": "nova"
+                        })
+    print(f"Status: {resp.status_code}")
     
     if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        log(f"Response: {resp.text}")
+        print(f"❌ FAIL: Expected 400, got {resp.status_code}")
         return False
+    print(f"✅ Got 400 for empty/whitespace message")
     
-    log(f"✅ PASS: Bad cadence correctly returns 400")
+    print("\n✅ TEST G: PASS")
     return True
 
-def test_6_schedule_bad_agent(token, org_id):
-    """TEST 6: Set schedule on non-existent agent -> expect 404."""
-    log("\n=== TEST 6: SCHEDULE ON BAD AGENT ===")
-    
-    # Generate a random 24-hex ObjectId
-    fake_id = "123456789012345678901234"
-    
-    resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/agents/{fake_id}/schedule",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "cadence": "daily",
-            "input": "x",
-            "enabled": True
-        }
-    )
-    
-    if resp.status_code != 404:
-        log(f"❌ FAIL: Expected 404, got {resp.status_code}")
-        log(f"Response: {resp.text}")
-        return False
-    
-    log(f"✅ PASS: Schedule on bad agent correctly returns 404")
-    return True
-
-def test_7_autonomous_autorun(token, org_id, agent_id):
-    """TEST 7 (KEY TEST): Wait for autonomous scheduled run to appear."""
-    log("\n=== TEST 7: AUTONOMOUS AUTO-RUN (KEY TEST) ===")
-    log("Waiting for scheduled run to appear (polling every 10s for up to 90s)...")
-    log("Note: Scheduler ticks every 30s, first run should fire immediately since next_run=now")
-    
-    max_wait = 90
-    poll_interval = 10
-    elapsed = 0
-    run_output = None
-    
-    while elapsed < max_wait:
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-        
-        log(f"  Polling at {elapsed}s...")
-        resp = requests.get(
-            f"{BASE_URL}/orgs/{org_id}/agents/{agent_id}/runs",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        
-        if resp.status_code != 200:
-            log(f"  ⚠️  Failed to get runs: {resp.status_code}")
-            continue
-        
-        runs = resp.json()
-        
-        # Look for a run with type='scheduled'
-        for run in runs:
-            if run.get("type") == "scheduled":
-                run_output = run.get("output", "")
-                log(f"✅ PASS: Scheduled run found after {elapsed}s!")
-                log(f"  - Run ID: {run.get('id')}")
-                log(f"  - Type: {run.get('type')}")
-                log(f"  - Output length: {len(run_output)} chars")
-                log(f"  - Output: {run_output[:200]}...")
-                
-                if not run_output:
-                    log(f"⚠️  WARNING: Run output is empty")
-                    return False, None
-                
-                # Check if output contains "PONG" (case-insensitive)
-                if "PONG" in run_output.upper():
-                    log(f"✅ Output contains 'PONG' as expected")
-                else:
-                    log(f"⚠️  WARNING: Output does not contain 'PONG'")
-                
-                return True, run_output
-        
-        log(f"  No scheduled run yet (found {len(runs)} runs total)")
-    
-    log(f"❌ FAIL: No scheduled run appeared after {max_wait}s")
-    return False, None
-
-def test_8_schedule_state_updated(token, org_id, agent_id):
-    """TEST 8: Verify schedule.last_run is set and next_run is advanced."""
-    log("\n=== TEST 8: SCHEDULE STATE UPDATED ===")
-    
-    resp = requests.get(
-        f"{BASE_URL}/orgs/{org_id}/agents",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Failed to get agents: {resp.status_code}")
-        return False
-    
-    agents = resp.json()
-    agent = None
-    for a in agents:
-        if a.get("id") == agent_id:
-            agent = a
-            break
-    
-    if not agent:
-        log(f"❌ FAIL: Agent {agent_id} not found in list")
-        return False
-    
-    schedule = agent.get("schedule")
-    if not schedule:
-        log(f"❌ FAIL: No schedule in agent")
-        return False
-    
-    last_run = schedule.get("last_run")
-    next_run = schedule.get("next_run")
-    
-    if not last_run:
-        log(f"❌ FAIL: schedule.last_run is not set (got {last_run})")
-        return False
-    
-    if not next_run:
-        log(f"❌ FAIL: schedule.next_run is not set (got {next_run})")
-        return False
-    
-    log(f"✅ PASS: Schedule state updated correctly")
-    log(f"  - last_run: {last_run}")
-    log(f"  - next_run: {next_run}")
-    log(f"  - last_run_id: {schedule.get('last_run_id')}")
-    return True
-
-def test_9_pause_schedule(token, org_id, agent_id):
-    """TEST 9: DELETE schedule -> expect 200 and schedule.enabled=false."""
-    log("\n=== TEST 9: PAUSE SCHEDULE ===")
-    
-    resp = requests.delete(
-        f"{BASE_URL}/orgs/{org_id}/agents/{agent_id}/schedule",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        log(f"Response: {resp.text}")
-        return False
-    
-    data = resp.json()
-    if not data.get("ok"):
-        log(f"❌ FAIL: Expected {{ok:true}}, got {data}")
-        return False
-    
-    log(f"✅ DELETE returned {{ok:true}}")
-    
-    # Verify schedule.enabled is now false
-    resp = requests.get(
-        f"{BASE_URL}/orgs/{org_id}/agents",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Failed to get agents: {resp.status_code}")
-        return False
-    
-    agents = resp.json()
-    agent = None
-    for a in agents:
-        if a.get("id") == agent_id:
-            agent = a
-            break
-    
-    if not agent:
-        log(f"❌ FAIL: Agent {agent_id} not found")
-        return False
-    
-    schedule = agent.get("schedule")
-    if not schedule:
-        log(f"⚠️  WARNING: No schedule in agent after DELETE")
-        return True  # This is acceptable
-    
-    if schedule.get("enabled") != False:
-        log(f"❌ FAIL: Expected schedule.enabled=false, got {schedule.get('enabled')}")
-        return False
-    
-    log(f"✅ PASS: Schedule paused (enabled=false)")
-    return True
 
 def main():
-    log("=" * 70)
-    log("AGENT MARKETPLACE + AUTONOMOUS SCHEDULING - COMPREHENSIVE TEST")
-    log("=" * 70)
+    print("="*80)
+    print("VIBEVERSE VOICE-COMPANION BACKEND TEST SUITE")
+    print("="*80)
     
     # Login
-    token = test_login()
-    org_id = get_org_id(token)
+    token, org_id = login()
     
+    # Run all tests
     results = {}
     
-    # Test 1: Marketplace list
-    results["test_1_marketplace_list"] = test_1_marketplace_list(token)
+    results["A"] = test_a_voice_agents_list(token)
+    results["B"] = test_b_voice_sample(token, org_id)
+    results["C"] = test_c_preferences(token)
+    results["D"], sid = test_d_voice_chat_normal(token, org_id)
+    results["E"] = test_e_adult_gate(token, org_id)
     
-    # Test 2: Hire agent
-    test_2_pass, agent_id = test_2_hire_agent(token, org_id)
-    results["test_2_hire_agent"] = test_2_pass
+    # Test F uses the session from test D
+    if sid:
+        results["F"] = test_f_identity(token, org_id, sid)
+    else:
+        print("\n⚠️  Skipping TEST F (no session from TEST D)")
+        results["F"] = False
     
-    if not agent_id:
-        log("\n❌ CRITICAL: Cannot continue without agent_id from test 2")
-        sys.exit(1)
-    
-    # Test 3: Hire bad template
-    results["test_3_hire_bad_template"] = test_3_hire_bad_template(token, org_id)
-    
-    # Test 4: Set schedule
-    results["test_4_set_schedule"] = test_4_set_schedule(token, org_id, agent_id)
-    
-    # Test 5: Bad cadence
-    results["test_5_bad_cadence"] = test_5_bad_cadence(token, org_id, agent_id)
-    
-    # Test 6: Schedule on bad agent
-    results["test_6_schedule_bad_agent"] = test_6_schedule_bad_agent(token, org_id)
-    
-    # Test 7: Autonomous auto-run (KEY TEST)
-    test_7_pass, run_output = test_7_autonomous_autorun(token, org_id, agent_id)
-    results["test_7_autonomous_autorun"] = test_7_pass
-    
-    # Test 8: Schedule state updated
-    results["test_8_schedule_state_updated"] = test_8_schedule_state_updated(token, org_id, agent_id)
-    
-    # Test 9: Pause schedule
-    results["test_9_pause_schedule"] = test_9_pause_schedule(token, org_id, agent_id)
+    results["G"] = test_g_errors(token, org_id)
     
     # Summary
-    log("\n" + "=" * 70)
-    log("TEST SUMMARY")
-    log("=" * 70)
+    print("\n" + "="*80)
+    print("TEST SUMMARY")
+    print("="*80)
+    for test, passed in results.items():
+        status = "✅ PASS" if passed else "❌ FAIL"
+        print(f"TEST {test}: {status}")
     
-    passed = sum(1 for v in results.values() if v)
-    total = len(results)
-    
-    for test_name, passed_flag in results.items():
-        status = "✅ PASS" if passed_flag else "❌ FAIL"
-        log(f"{status}: {test_name}")
-    
-    log(f"\nTotal: {passed}/{total} tests passed")
-    
-    if run_output:
-        log(f"\n📝 Scheduled run output (test 7):")
-        log(f"{run_output}")
-    
-    if passed == total:
-        log("\n🎉 ALL TESTS PASSED!")
-        sys.exit(0)
+    all_passed = all(results.values())
+    print("\n" + "="*80)
+    if all_passed:
+        print("🎉 ALL TESTS PASSED")
     else:
-        log(f"\n❌ {total - passed} test(s) failed")
-        sys.exit(1)
+        print("❌ SOME TESTS FAILED")
+    print("="*80)
+    
+    return 0 if all_passed else 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

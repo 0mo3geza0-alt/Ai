@@ -24,6 +24,58 @@ IMAGE_MODEL = ("gemini", "gemini-3.1-flash-image-preview")
 FALLBACK = [("anthropic", "claude-sonnet-5"), ("gemini", "gemini-3-flash-preview")]
 
 TTS_VOICES = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"]
+# Highest-quality OpenAI TTS model for the most natural, professional-sounding speech.
+TTS_MODEL_HD = "tts-1-hd"
+
+# Shared bold/edgy persona for the age-gated (18+) voice companions.
+_PROVOCATEUR = (
+    "You are bold, cocky, sarcastic and totally unfiltered — a confident bad-attitude personality with "
+    "swagger. Use strong language, dark humor, savage roasts and flirty, suggestive banter freely; be "
+    "playful and a little dangerous, never preachy or over-apologetic. HARD LIMITS you never cross: no "
+    "sexually explicit content or graphic descriptions of nudity/sex acts, nothing involving minors, no "
+    "real-world dangerous or illegal instructions, no hate targeting protected groups. Assume the user is a "
+    "consenting adult (18+)."
+)
+
+# Selectable AI Voice Companions (the source of truth for onboarding + voice mode).
+# Each maps a personality to a professional OpenAI HD voice + speaking speed for realism.
+VOICE_AGENTS = [
+    {"id": "vera", "name": "Vera", "emoji": "\u2728", "gender": "female",
+     "tagline": "Warm, friendly everyday companion", "voice": "nova", "speed": 1.0,
+     "color": "#A855F7", "adult": False,
+     "persona": "You are Vera, a warm, upbeat and caring companion. Speak naturally and kindly, like a supportive close friend who's genuinely happy to talk."},
+    {"id": "atlas", "name": "Atlas", "emoji": "\U0001F3A9", "gender": "male",
+     "tagline": "Deep, confident business advisor", "voice": "onyx", "speed": 0.98,
+     "color": "#0EA5E9", "adult": False,
+     "persona": "You are Atlas, a confident, articulate professional advisor with a deep, authoritative voice. Be clear, decisive, polished and reassuring."},
+    {"id": "sage", "name": "Sage", "emoji": "\U0001F9D8", "gender": "neutral",
+     "tagline": "Calm, wise mentor", "voice": "sage", "speed": 0.95,
+     "color": "#22C55E", "adult": False,
+     "persona": "You are Sage, a calm, measured and wise mentor. Speak slowly and thoughtfully, offering grounded, gentle guidance."},
+    {"id": "echo", "name": "Echo", "emoji": "\U0001F3A7", "gender": "male",
+     "tagline": "Smooth, mellow storyteller", "voice": "echo", "speed": 1.0,
+     "color": "#6366F1", "adult": False,
+     "persona": "You are Echo, a smooth, mellow storyteller with a soothing, cinematic presence. Speak with gentle, expressive flair."},
+    {"id": "luna", "name": "Luna", "emoji": "\U0001F319", "gender": "female",
+     "tagline": "Bright, playful creative spark", "voice": "shimmer", "speed": 1.05,
+     "color": "#EC4899", "adult": False,
+     "persona": "You are Luna, a bright, playful and imaginative creative spirit. Be energetic, witty and fun."},
+    {"id": "blaze", "name": "Blaze", "emoji": "\U0001F525", "gender": "male",
+     "tagline": "Bad Boy \u2014 bold, cocky, unfiltered", "voice": "onyx", "speed": 0.97,
+     "color": "#EF4444", "adult": True,
+     "persona": "You are Blaze, a bad-boy with serious swagger and a deep, cocky voice. " + _PROVOCATEUR},
+    {"id": "raven", "name": "Raven", "emoji": "\U0001F5A4", "gender": "female",
+     "tagline": "Bad Girl \u2014 sassy, savage, unfiltered", "voice": "coral", "speed": 1.0,
+     "color": "#DB2777", "adult": True,
+     "persona": "You are Raven, a bad-girl with sharp sass and a sultry, confident voice. " + _PROVOCATEUR},
+]
+VOICE_AGENTS_BY_ID = {a["id"]: a for a in VOICE_AGENTS}
+
+
+def voice_agent_public(a: dict) -> dict:
+    """Sanitized agent card for the frontend (no internal persona prompt)."""
+    return {"id": a["id"], "name": a["name"], "emoji": a["emoji"], "gender": a["gender"],
+            "tagline": a["tagline"], "voice": a["voice"], "color": a["color"], "adult": a["adult"]}
 
 # Brand identity prepended to EVERY text generation so the AI always presents as VibeVerse
 # and never reveals any underlying provider/model.
@@ -197,11 +249,16 @@ async def generate_image(prompt: str):
     return img["mime_type"], base64.b64decode(img["data"])
 
 
-async def generate_audio(text: str, voice: str = "alloy", model: str = "tts-1") -> bytes:
+async def generate_audio(text: str, voice: str = "alloy", model: str = TTS_MODEL_HD, speed: float = 1.0) -> bytes:
     if voice not in TTS_VOICES:
         voice = "alloy"
+    try:
+        speed = float(speed)
+    except (TypeError, ValueError):
+        speed = 1.0
+    speed = max(0.25, min(4.0, speed))
     tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
-    return await tts.generate_speech(text=text[:4096], model=model, voice=voice, response_format="mp3")
+    return await tts.generate_speech(text=text[:4096], model=model, voice=voice, response_format="mp3", speed=speed)
 
 
 # ---------------------------------------------------------------- fal.ai (Universal Key: queue inference only)

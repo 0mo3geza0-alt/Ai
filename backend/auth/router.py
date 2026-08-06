@@ -117,6 +117,23 @@ async def me(current_user: dict = Depends(get_current_user)):
     return serialize_user(current_user)
 
 
+@router.put("/auth/me/preferences")
+async def update_preferences(body: dict, current_user: dict = Depends(get_current_user)):
+    """Persist the user's chosen voice companion + voice + 18+ confirmation."""
+    db = get_db()
+    prefs = current_user.get("preferences") or {}
+    if "voice_agent" in body:
+        prefs["voice_agent"] = body.get("voice_agent")
+    if "voice" in body:
+        prefs["voice"] = body.get("voice")
+    if "adult_confirmed" in body:
+        prefs["adult_confirmed"] = bool(body.get("adult_confirmed"))
+    prefs["onboarded"] = True
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"preferences": prefs}})
+    current_user["preferences"] = prefs
+    return serialize_user(current_user)
+
+
 @router.post("/auth/refresh")
 async def refresh(body: RefreshBody, request: Request, response: Response):
     db = get_db()

@@ -3,10 +3,11 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Building2, KeyRound, FolderGit2, Settings as SettingsIcon, LogOut, Menu, ChevronsUpDown, Check, MessageSquare, Sparkles, Images, Shield, Coins, Bot, Brain, ShieldAlert, CreditCard, Workflow } from "lucide-react";
 import { useAuth, api } from "@/context/AuthContext";
 import { Logo } from "@/components/shared";
+import VoiceOnboarding from "@/components/VoiceOnboarding";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function DashboardLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [orgs, setOrgs] = useState([]);
@@ -123,6 +124,9 @@ export default function DashboardLayout() {
             <div className="p-8 text-[#64748B]">Loading workspace…</div>}
         </main>
       </div>
+      {activeOrg && user && !(user.preferences && user.preferences.onboarded) && (
+        <VoiceOnboarding oid={activeOrg.id} onDone={() => refreshUser?.()} />
+      )}
     </div>
   );
 }

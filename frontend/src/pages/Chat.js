@@ -144,7 +144,7 @@ function MediaBlock({ m, pollJob }) {
 }
 
 export default function Chat() {
-  const { activeOrg, refreshUsage } = useOutletContext();
+  const { activeOrg, refreshUsage, user } = useOutletContext();
   const oid = activeOrg.id;
   const [sessions, setSessions] = useState([]);
   const [active, setActive] = useState(null);
@@ -163,11 +163,28 @@ export default function Chat() {
   const [vStatus, setVStatus] = useState("idle"); // idle | listening | thinking | speaking
   const [vTranscript, setVTranscript] = useState("");
   const [voice, setVoice] = useState("nova");
+  const [agents, setAgents] = useState([]);
+  const [companion, setCompanion] = useState(null);
   const recogRef = useRef(null);
   const audioRef = useRef(null);
   const voiceOpenRef = useRef(false);
   const activeRef = useRef(null);
+  const voiceRef = useRef("nova");
+  const companionRef = useRef(null);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { voiceRef.current = voice; }, [voice]);
+  useEffect(() => { companionRef.current = companion; }, [companion]);
+
+  // Load selectable voice companions + apply the user's saved preference as default.
+  useEffect(() => {
+    api.get("/voice-agents").then(({ data }) => {
+      const list = data.agents || [];
+      setAgents(list);
+      const prefAgent = user?.preferences?.voice_agent;
+      const chosen = list.find((a) => a.id === prefAgent) || list[0] || null;
+      if (chosen) { setCompanion(chosen); setVoice(user?.preferences?.voice || chosen.voice); }
+    }).catch(() => { /* voice mode still works with defaults */ });
+  }, []); // eslint-disable-line
 
   const loadSessions = async () => { const { data } = await api.get(`/orgs/${oid}/chat/sessions`); setSessions(data); return data; };
   useEffect(() => { setActive(null); setMessages([]); loadSessions(); }, [oid]); // eslint-disable-line
@@ -334,7 +351,10 @@ export default function Chat() {
     setMessages((m) => [...m, { role: "assistant", content: "", kind: "text", media: null, _streaming: true }]);
     const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
     try {
-      const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/voice-chat`, { message: said, voice });
+      const comp = companionRef.current;
+      const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/voice-chat`, {
+        message: said, voice: voiceRef.current, agent: comp?.id || null, adult_ok: !!comp?.adult,
+      });
       patchLast(() => ({ role: "assistant", content: data.reply, kind: "text", media: null }));
       refreshUsage?.();
       loadSessions();
@@ -354,6 +374,12 @@ export default function Chat() {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Voice chat failed");
       if (voiceOpenRef.current) setTimeout(() => listen(), 800);
     }
+  };
+
+  // Tap the orb to interrupt the assistant while it's speaking and start listening immediately (like ChatGPT voice).
+  const interrupt = () => {
+    if (vStatus === "speaking") { stopAudio(); listen(); }
+    else if (vStatus === "idle") { listen(); }
   };
 
   const startVoiceMode = () => {
@@ -464,41 +490,83 @@ export default function Chat() {
         </div>
       </div>
 
-      {voiceOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[#07070C]/95 backdrop-blur-sm" data-testid="voice-overlay">
-          <button data-testid="voice-close-btn" onClick={stopVoiceMode} className="absolute top-5 end-5 text-[#64748B] hover:text-white"><X className="w-6 h-6" /></button>
+      {voiceOpen && (() => {
+        const accent = companion?.color || "#A855F7";
+        const speaking = vStatus === "speaking";
+        const listening = vStatus === "listening";
+        const thinking = vStatus === "thinking";
+        return (
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-between bg-[#05050A]/97 backdrop-blur-md py-8" data-testid="voice-overlay"
+          style={{ background: `radial-gradient(circle at 50% 35%, ${accent}18, #05050A 70%)` }}>
+          <button data-testid="voice-close-btn" onClick={stopVoiceMode} className="absolute top-5 end-5 text-[#94A3B8] hover:text-white z-10"><X className="w-6 h-6" /></button>
 
-          <div className="mb-6">
-            <select data-testid="voice-select" value={voice} onChange={(e) => setVoice(e.target.value)}
-              className="bg-[#12121C] border border-[rgba(255,255,255,0.12)] text-sm text-[#94A3B8] rounded-lg px-3 py-1.5 capitalize focus:outline-none">
-              {VOICE_OPTS.map((v) => <option key={v} value={v} className="capitalize">{v}</option>)}
-            </select>
-          </div>
-
-          <div className="relative flex items-center justify-center mb-8">
-            <span className={`absolute rounded-full ${vStatus === "listening" ? "animate-ping bg-[#A855F7]/40" : vStatus === "speaking" ? "animate-pulse bg-[#22D3EE]/30" : "bg-transparent"}`} style={{ width: 180, height: 180 }} />
-            <div className={`relative w-36 h-36 rounded-full flex items-center justify-center transition-colors ${vStatus === "thinking" ? "bg-gradient-to-br from-[#6D28D9] to-[#D946EF]" : vStatus === "speaking" ? "bg-gradient-to-br from-[#0891B2] to-[#6D28D9]" : "ai-gradient-bg"}`}>
-              {vStatus === "thinking" ? <Loader2 className="w-12 h-12 text-white animate-spin" />
-                : vStatus === "speaking" ? <Volume2 className="w-12 h-12 text-white" />
-                : <Mic className="w-12 h-12 text-white" />}
+          {/* Companion header + switcher */}
+          <div className="flex flex-col items-center gap-3 pt-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-2xl" style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>{companion?.emoji || "🎙️"}</div>
+              <div className="text-start">
+                <p className="text-white font-semibold leading-tight flex items-center gap-1.5">{companion?.name || "VibeVerse"}
+                  {companion?.adult && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">18+</span>}
+                </p>
+                <p className="text-[11px] text-[#64748B]">{companion?.tagline || "Your AI voice companion"}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <select data-testid="voice-agent-select" value={companion?.id || ""}
+                onChange={(e) => { const a = agents.find((x) => x.id === e.target.value); if (a) { setCompanion(a); setVoice(a.voice); } }}
+                className="bg-[#12121C] border border-[rgba(255,255,255,0.14)] text-xs text-[#94A3B8] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#A855F7]">
+                {agents.map((a) => <option key={a.id} value={a.id}>{a.emoji} {a.name}{a.adult ? " (18+)" : ""}</option>)}
+              </select>
+              <select data-testid="voice-select" value={voice} onChange={(e) => setVoice(e.target.value)}
+                className="bg-[#12121C] border border-[rgba(255,255,255,0.14)] text-xs text-[#94A3B8] rounded-lg px-2.5 py-1.5 capitalize focus:outline-none focus:border-[#A855F7]">
+                {VOICE_OPTS.map((v) => <option key={v} value={v} className="capitalize">{v}</option>)}
+              </select>
             </div>
           </div>
 
-          <p className="text-lg font-medium text-white mb-1" data-testid="voice-status">
-            {vStatus === "listening" ? "Listening…" : vStatus === "thinking" ? "Thinking…" : vStatus === "speaking" ? "Speaking…" : "Tap the mic to talk"}
-          </p>
-          <p className="text-sm text-[#94A3B8] max-w-md text-center min-h-[20px] px-6" data-testid="voice-transcript">{vTranscript}</p>
-
-          <div className="flex items-center gap-4 mt-10">
-            {vStatus === "idle" ? (
-              <Button data-testid="voice-listen-btn" onClick={() => listen()} className="rounded-full h-14 px-6 ai-gradient-bg text-white border-0"><Mic className="w-5 h-5 me-2" /> Start talking</Button>
-            ) : (
-              <Button data-testid="voice-stop-btn" onClick={stopVoiceMode} variant="outline" className="rounded-full h-14 px-6 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20"><PhoneOff className="w-5 h-5 me-2" /> End conversation</Button>
+          {/* Animated orb — tap to interrupt/talk */}
+          <button onClick={interrupt} data-testid="voice-orb" className="relative flex items-center justify-center focus:outline-none" style={{ width: 280, height: 280 }}
+            title={speaking ? "Tap to interrupt" : "Tap to talk"}>
+            {(listening || speaking) && (
+              <>
+                <span className="absolute rounded-full animate-ping" style={{ width: 220, height: 220, background: `${accent}22` }} />
+                <span className="absolute rounded-full animate-pulse" style={{ width: 260, height: 260, border: `1px solid ${accent}44` }} />
+              </>
             )}
+            <span className="absolute rounded-full blur-2xl" style={{ width: 200, height: 200, background: `${accent}55` }} />
+            <div className="relative rounded-full flex items-center justify-center transition-all duration-300"
+              style={{ width: speaking ? 180 : listening ? 168 : 156, height: speaking ? 180 : listening ? 168 : 156,
+                background: `radial-gradient(circle at 30% 30%, ${accent}, #6D28D9 60%, #0891B2)`,
+                boxShadow: `0 0 60px -6px ${accent}` }}>
+              {speaking ? (
+                <div className="flex items-end gap-1.5 h-12" data-testid="voice-wave">
+                  {[0,1,2,3,4].map((i) => (
+                    <span key={i} className="w-1.5 rounded-full bg-white/90 voice-bar" style={{ animationDelay: `${i * 0.12}s` }} />
+                  ))}
+                </div>
+              ) : thinking ? <Loader2 className="w-14 h-14 text-white animate-spin" />
+                : <Mic className="w-14 h-14 text-white" />}
+            </div>
+          </button>
+
+          {/* Status + live captions */}
+          <div className="flex flex-col items-center px-6 w-full max-w-lg">
+            <p className="text-lg font-medium text-white mb-2" data-testid="voice-status">
+              {listening ? "Listening…" : thinking ? "Thinking…" : speaking ? "Speaking — tap to interrupt" : "Tap the orb to talk"}
+            </p>
+            <p className="text-sm text-[#B4C0D3] text-center min-h-[44px] leading-relaxed" data-testid="voice-transcript">{vTranscript}</p>
+            <div className="flex items-center gap-3 mt-6">
+              {vStatus === "idle" ? (
+                <Button data-testid="voice-listen-btn" onClick={() => listen()} className="rounded-full h-14 px-7 ai-gradient-bg text-white border-0"><Mic className="w-5 h-5 me-2" /> Start talking</Button>
+              ) : (
+                <Button data-testid="voice-stop-btn" onClick={stopVoiceMode} variant="outline" className="rounded-full h-14 px-7 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20"><PhoneOff className="w-5 h-5 me-2" /> End conversation</Button>
+              )}
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-5 text-center">Best on Chrome &amp; Edge · Tap the orb to interrupt · Saved to this chat</p>
           </div>
-          <p className="text-[11px] text-[#64748B] mt-6">Voice mode works best on Chrome &amp; Edge. Your conversation is saved to this chat.</p>
         </div>
-      )}
+        );
+      })()}
 
       {galleryOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" data-testid="gallery-overlay" onClick={() => setGalleryOpen(false)}>

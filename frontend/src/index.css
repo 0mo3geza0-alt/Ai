@@ -66,6 +66,10 @@ html[lang="ar"] .font-display { font-family: 'Alexandria', sans-serif; letter-sp
 .glass { background: rgba(12,12,20,0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
 .glow-border { box-shadow: 0 8px 32px rgba(79,70,229,0.18); }
 
+/* Voice mode waveform bars (speaking state) */
+@keyframes voice-eq { 0%,100%{height:10px;opacity:.7} 50%{height:44px;opacity:1} }
+.voice-bar { height: 10px; animation: voice-eq 0.9s ease-in-out infinite; }
+
 @layer base {
   * { border-color: var(--border-default); }
 }
