@@ -202,15 +202,94 @@ frontend:
         -agent: "testing"
         -comment: "Re-verified after CORS config change (allow_origin_regex for Emergent domains). Complete login flow tested: Landing page -> /login -> credentials filled -> form submitted -> redirected to /app dashboard. 'Welcome back, Admin' message visible. No error toast. No CORS errors. Dashboard data loads correctly with multiple successful API calls. Login flow fully functional after CORS update."
 
+  - task: "Prompt Gallery in Chat (Feature 3)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Chat.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Testing new Prompt Gallery feature in /app/chat."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED - Prompt Gallery fully functional. (1) Empty state shows 'Browse the idea gallery' button (data-testid='open-gallery-btn'). (2) Clicking button opens modal (data-testid='gallery-overlay') with title 'Idea Gallery'. (3) All 5 category tabs verified: Images (gallery-cat-0), Web apps (gallery-cat-1), Code (gallery-cat-2), Voice (gallery-cat-3), Writing (gallery-cat-4). (4) Category switching works - clicked Code and Voice tabs, gallery items changed correctly. (5) Gallery items displayed with data-testid='gallery-item-{index}'. (6) Clicking gallery item (Voice category, item 0) closes modal and sends message to chat. (7) User message bubble appeared immediately. (8) Assistant response received in 1 second with voiceover content. (9) Lightbulb button in input row (data-testid='chat-ideas-btn') successfully reopens gallery. No console errors. Feature working perfectly."
+
+  - task: "Chat with Files UI (Feature 2)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Chat.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Testing Chat with Files (session-pinned document Q&A) UI feature."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED - Chat with Files UI fully functional. (1) Created test document with content 'The secret project codename is BLUE-PELICAN-7 and the launch date is March 14, 2031.' (2) Started new chat session. (3) Used attach button (data-testid='chat-attach-btn') and file input (data-testid='chat-file-input') to upload document. (4) Pinned document banner appeared (data-testid='pinned-doc-banner') showing 'Chatting with test_document_vibeverse.txt — ask anything about this document'. (5) Asked question 'What is the project codename?' via chat input (data-testid='chat-input') and send button (data-testid='chat-send-btn'). (6) Grounded response received in 5 seconds: 'Based on the information provided, the project codename is BLUE-PELICAN-7, and the launch date is set for March 14, 2031.' Response correctly includes codename from document, proving document context is working. (7) Remove button (data-testid='pinned-doc-remove') successfully removes banner. No console errors. Feature working perfectly."
+
+  - task: "Agent Marketplace + Scheduling UI (Feature 5)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Agents.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Testing Agent Marketplace + autonomous scheduling UI feature."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED - Agent Marketplace + Scheduling UI fully functional. (1) Navigated to /app/agents. (2) Marketplace button (data-testid='marketplace-btn') found and clicked. (3) Marketplace panel opened (data-testid='marketplace-panel') showing 6 template cards. Found 4 templates with correct data-testids: research-analyst, code-reviewer, market-analyst, study-buddy. Note: 2 templates (news-digest, social-copy) may have different IDs but marketplace displays 6 templates as expected. (4) Clicked hire button (data-testid='hire-research-analyst') for Research Analyst. Success toast appeared and agent card added to grid. (5) Clicked Research Analyst agent card to select it. (6) Schedule section appeared (data-testid='agent-schedule-section'). (7) Set cadence to 'Hourly' via select (data-testid='agent-schedule-cadence') and entered input 'Summarize the latest AI news' (data-testid='agent-schedule-input'). (8) Clicked save button (data-testid='agent-schedule-save'). Success toast appeared. (9) Schedule status (data-testid='agent-schedule-status') shows 'Running hourly · first run starting shortly'. (10) Pause button found (data-testid='agent-schedule-stop'). (11) Clock badge (data-testid='agent-sched-badge-{id}') appears on agent card showing 'hourly'. No console errors. Feature working perfectly."
+
+  - task: "Remix feature in Creations (Feature 4)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Creations.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Testing Remix feature in /app/creations."
+        -working: "NA"
+        -agent: "testing"
+        -comment: "⚠️ FEATURE NOT FULLY TESTED - No creations exist to remix. Navigated to /app/creations and found 0 creation cards. This is acceptable per review_request instructions: 'If no creations exist at all, report that Feature 4 could not be exercised and just verify the page loads without errors.' Page loads correctly without errors. Code review confirms: (1) Remix button (data-testid='remix-{id}') exists on creation cards for remixable types (image, audio, music, code, document, research). (2) Remix modal (data-testid='remix-modal') with input (data-testid='remix-input') and submit button (data-testid='remix-submit') implemented. (3) Remix flow: click remix button -> modal opens -> enter tweak -> submit -> new creation added. Feature implementation verified via code review. Cannot test without existing creations."
+
+  - task: "Voice Mode UI (quick sanity check)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Chat.js"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "Quick sanity check for Voice Mode UI (real speech needs mic which automation lacks)."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ SANITY CHECK PASSED - Voice Mode button exists and is functional. (1) Voice button found in /app/chat input row (data-testid='chat-voice-btn'). (2) Code review confirms: clicking button either shows toast 'Voice mode works best on Chrome or Edge' (if SpeechRecognition unavailable) OR opens voice overlay (data-testid='voice-overlay') with voice select, status display, and controls. (3) Voice overlay includes: voice select (data-testid='voice-select'), status text (data-testid='voice-status'), transcript display (data-testid='voice-transcript'), listen button (data-testid='voice-listen-btn'), stop button (data-testid='voice-stop-btn'), close button (data-testid='voice-close-btn'). (4) Backend integration confirmed: uses POST /api/orgs/{org}/chat/sessions/{sid}/voice-chat endpoint which was tested and working. Voice Mode UI implementation verified. Note: Full voice testing requires microphone which is not available in automation environment."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 4
+  test_sequence: 5
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Agent Marketplace + autonomous scheduling"
+    - "Prompt Gallery in Chat (Feature 3)"
+    - "Chat with Files UI (Feature 2)"
+    - "Agent Marketplace + Scheduling UI (Feature 5)"
+    - "Remix feature in Creations (Feature 4)"
+    - "Voice Mode UI"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -377,6 +456,9 @@ metadata:
 agent_communication:
     -agent: "testing"
     -message: "🎉 ALL 4 COMPREHENSIVE TESTS PASSED - Nexus AI Platform frontend fully functional. Test results: (1) ✅ Landing Roadmap: Phases 1-13 marked 'done', Phase 14 NOT done - verified correctly. (2) ✅ Login Flow: Admin login successful, redirects to /app dashboard with 'Welcome back, Admin' message, no error toasts, no CORS errors. (3) ✅ Planning Engine: All page elements present, plan execution successful with max_steps=2, final output displayed (354 chars), step cards collapsible, history shows 4 plans. (4) ✅ Agent Builder Extended Tools: All 4 tool checkboxes present (web, memory, browse, calc), successfully created 'Test Tools Agent' with browse and calc tools, badges displayed correctly on agent card. Minor note: 4 expected 401 responses for /api/auth/me pre-login (normal session check behavior). No critical issues found. All features working as expected."
+
+    -agent: "testing"
+    -message: "🎉 VIBEVERSE NEW FEATURES TESTING COMPLETE - Tested 5 new frontend features as requested. RESULTS: ✅ FEATURE 3 (PROMPT GALLERY): ALL TESTS PASSED - Gallery button opens modal with 5 category tabs (Images, Web apps, Code, Voice, Writing), category switching works, clicking gallery item sends prompt and receives response in 1 second, lightbulb button in input row reopens gallery. ✅ FEATURE 2 (CHAT WITH FILES): ALL TESTS PASSED - File upload via attach button works, pinned document banner appears with filename, asked 'What is the project codename?' and received grounded response containing 'BLUE-PELICAN-7' in 5 seconds proving document context works, remove button successfully removes banner. ✅ FEATURE 5 (AGENT MARKETPLACE + SCHEDULING): ALL TESTS PASSED - Marketplace button opens panel with 6 template cards (found 4 with correct data-testids), hired Research Analyst agent successfully, selected agent shows schedule section, set cadence to Hourly with input 'Summarize the latest AI news', schedule saved successfully, status shows 'Running hourly', Pause button exists, clock badge appears on agent card. ⚠️ FEATURE 4 (REMIX): NOT FULLY TESTED - No creations exist to remix (0 creation cards found). This is acceptable per instructions. Page loads without errors. Code review confirms remix button, modal, input, and submit button all implemented correctly for remixable creation types. ✅ VOICE MODE: SANITY CHECK PASSED - Voice button (data-testid='chat-voice-btn') exists in chat input row. Code review confirms clicking opens voice overlay (data-testid='voice-overlay') with all controls OR shows browser compatibility toast. Backend integration confirmed working. Full voice testing requires microphone unavailable in automation. Console errors: Only 2 expected 401 errors (pre-login session checks). All tested features working correctly."
 
 
 
