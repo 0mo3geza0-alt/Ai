@@ -191,3 +191,69 @@ agent_communication:
     -message: "Please test the new agent conversational memory. Steps: 1) Login admin (admin@aiplatform.com / admin12345). 2) Get org id from /api/auth/me (default_org_id) or /api/orgs. 3) Create an agent via POST /api/orgs/{org_id}/agents with tools including 'memory' (body: name, system_prompt, role='assistant', tools=['memory']). 4) Run it: POST /api/orgs/{org_id}/agents/{aid}/run with input like 'Remember: my name is Ahmed and my favorite color is blue.' and a session_id. 5) Run again with input 'What is my name and my favorite color?' (same or new session_id). Verify the second response recalls 'Ahmed' and 'blue' (context remembered). 6) Verify GET /api/orgs/{org_id}/memories now contains entries with source='conversation'. Report whether the agent successfully remembered the context."
     -agent: "testing"
     -message: "✅ ALL TESTS PASSED - Agent Conversational (Episodic) Memory feature is fully functional. Created comprehensive backend_test.py covering all 7 test steps. Key results: (1) Login working. (2) Org retrieval working. (3) Agent creation with memory tool working. (4) First run stored context successfully. (5) CRITICAL TEST PASSED: Second run with different session_id correctly recalled 'Ahmed' and 'blue' from previous conversation, memory tool was used. (6) Database verification confirmed 2 conversation memories with source='conversation'. (7) Regression test confirmed updating agent knowledge does NOT delete conversation memories - both memory types coexist properly. The agent successfully remembers context across different sessions via semantic episodic memory. No issues found."
+
+
+## FEATURES: Tool Framework (Phase 4), Planning Engine (Phase 6), Browser Automation (Phase 8) — added by main agent
+backend:
+  - task: "Tool Framework — tool registry + endpoints (Phase 4)"
+    implemented: true
+    working: true
+    file: "backend/tools/registry.py, backend/tools/router.py, backend/tools/browser.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "New tools module. GET /api/tools lists tools (web_search, browse, calculator, memory). POST /api/orgs/{org}/tools/calc (safe AST math eval), /tools/browse (fetch+extract URL text), /tools/web_search. Manually smoke-tested: tools list OK, calc '(12*7)+100/4'=109, browse example.com extracted text OK."
+        -working: true
+        -agent: "testing"
+        -comment: "Comprehensive testing completed via /app/test_new_features.py. All tool framework tests PASSED: (1) GET /api/tools returned all 4 expected tools (web_search, browse, calculator, memory). (2a) Calculator with valid expression '2**10 + 5*3' correctly returned '1039'. (2b) Calculator with malicious expression '__import__('os')' safely rejected with 'Calculator error: unsupported expression' - no code execution. (3) Browse tool successfully fetched https://example.com with 'Example Domain' text (129 chars). (4) Web search tool with query 'python programming language' returned 5 well-formed results. All endpoints working correctly with proper authentication and error handling."
+  - task: "Browser Automation — browse/fetch URL (Phase 8)"
+    implemented: true
+    working: true
+    file: "backend/tools/browser.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "browser.fetch_url uses requests + regex HTML->text extraction (no extra deps). Integrated as agent tool 'browse' (auto-triggers when a URL is present in the input) and used by Planning Engine 'browse' action. Manually verified on example.com."
+        -working: true
+        -agent: "testing"
+        -comment: "Browser automation fully functional. Test 3 verified: POST /api/orgs/{org}/tools/browse with url='https://example.com' returned ok=true, url='https://example.com/', and text containing 'Example Domain' (129 chars). Test 6 verified: Agent with browse tool successfully auto-detected URL in input 'Summarize this page: https://example.com', fetched page content, and generated summary. tools_used=['browse'] confirmed. Browse tool working correctly both as standalone endpoint and integrated into agent workflow."
+  - task: "Planning Engine — decompose goal into steps & execute (Phase 6)"
+    implemented: true
+    working: true
+    file: "backend/planning/router.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /api/orgs/{org}/plan/run {goal,max_steps} -> LLM makes ordered plan (actions: research/browse/reason), executes each step building on prior results (research=web_search, browse=fetch URL), then synthesizes final markdown. GET /api/orgs/{org}/plan/runs lists history. Costs 6 credits (refunded on error). Manually verified: 2-step plan executed and synthesized final output."
+        -working: true
+        -agent: "testing"
+        -comment: "Planning Engine fully operational. Test 5a: POST /api/orgs/{org}/plan/run with goal='Explain what the Eiffel Tower is and give 3 quick facts' and max_steps=3 successfully executed. Response structure verified: plan array (2 steps), steps array (2 executed steps, each with output), and final synthesized output (438 chars) containing accurate information about Eiffel Tower with 3 facts. Test 5b: GET /api/orgs/{org}/plan/runs successfully returned list of 2 runs including the newly created run. Planning engine correctly decomposes goals, executes steps with tool integration (research/browse/reason), and synthesizes final deliverable."
+  - task: "Agent tools extended (browse + calculator) in _run_agent_core"
+    implemented: true
+    working: true
+    file: "backend/agents/router.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "TOOLS now = [web_search, memory, browse, calculator]. _run_agent_core: 'browse' auto-fetches a URL found in input; 'calculator' evaluates when input is a pure math expression. Added to context for grounding."
+        -working: true
+        -agent: "testing"
+        -comment: "Agent tools integration fully functional. Test 6 (browse): Created agent 'Browser' with tools=['browse'], ran with input 'Summarize this page: https://example.com'. Agent successfully auto-detected URL, fetched page content, and generated summary mentioning 'Example Domain'. tools_used=['browse'] confirmed. Test 7 (calculator): Created agent 'Mather' with tools=['calculator'], ran with input '15*4+7'. Agent successfully computed result '67' and tools_used=['calculator'] confirmed. Both browse and calculator tools correctly auto-trigger based on input patterns (URL detection for browse, pure math expression for calculator) and provide context to agent for grounding."
+
+agent_communication:
+    -agent: "main"
+    -message: "Please test Phases 4/6/8. AUTH: admin@aiplatform.com / admin12345 (in /app/memory/test_credentials.md); login POST /api/auth/login, use Bearer token; org id = default_org_id from /api/auth/me. TESTS: (1) GET /api/tools returns 4 tools. (2) POST /api/orgs/{org}/tools/calc {expression:'2**10 + 5*3'} -> '1039'. (3) POST /api/orgs/{org}/tools/browse {url:'https://example.com'} -> ok=true, non-empty text. (4) POST /api/orgs/{org}/tools/web_search {query:'python programming'} -> results array. (5) Planning: POST /api/orgs/{org}/plan/run {goal:'Research what the Eiffel Tower is and summarize in 3 bullets','max_steps':3} -> 200 with plan[], steps[] (each has output), and non-empty final output; then GET /api/orgs/{org}/plan/runs shows the run. (6) Agent browse tool: create agent tools=['browse'], run with input containing a URL like 'Summarize https://example.com' -> output reflects page + tools_used includes 'browse'. (7) Agent calculator: create agent tools=['calculator'], run with input '15*4+7' -> output includes 67. Report PASS/FAIL per test."
+    -agent: "testing"
+    -message: "✅ ALL 9 TESTS PASSED - Tool Framework (Phase 4), Planning Engine (Phase 6), and Browser Automation (Phase 8) are fully functional. Created comprehensive test suite in /app/test_new_features.py covering all requested scenarios. Test results: (1) Tool list endpoint working - returns 4 tools. (2a) Calculator valid expression working - correctly computes 2**10+5*3=1039. (2b) Calculator malicious expression safely rejected - no code execution. (3) Browse tool working - fetches and extracts text from URLs. (4) Web search tool working - returns well-formed results array. (5a) Planning Engine working - decomposes goals, executes steps, synthesizes output. (5b) Plan runs list working - returns history including new runs. (6) Agent browse tool integration working - auto-detects URLs and fetches content. (7) Agent calculator tool integration working - auto-detects math expressions and computes results. All features tested with real API calls, proper authentication, and verified response structures. No issues found."

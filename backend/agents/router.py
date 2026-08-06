@@ -5,6 +5,7 @@ and uploadable knowledge (stored as semantic memories). A manager can orchestrat
 a team of agents to solve a goal collaboratively.
 """
 import json
+import re
 import uuid
 import asyncio
 
@@ -19,12 +20,13 @@ from auth.deps import require_permission
 from llm import gateway
 from memory import embeddings as emb
 from memory.router import search_memories
+from tools import browser, registry
 
 router = APIRouter(prefix="/api")
 
 COST = {"agent": 3, "team": 8}
 ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager"]
-TOOLS = ["web_search", "memory"]
+TOOLS = ["web_search", "memory", "browse", "calculator"]
 
 
 class AgentBody(BaseModel):
@@ -251,6 +253,26 @@ async def _run_agent_core(db, org_id: str, agent: dict, user_input: str,
                 used.append("web_search")
                 context_parts.append("Web search results:\n" + "\n".join(
                     f"[{i+1}] {s['title']} — {s['url']}\n{s['snippet']}" for i, s in enumerate(sources)))
+        except Exception:
+            pass
+
+    if "browse" in tools:
+        try:
+            url = browser.find_url(user_input)
+            if url:
+                b = await asyncio.to_thread(browser.fetch_url, url, 3500)
+                if b.get("ok") and b.get("text"):
+                    used.append("browse")
+                    context_parts.append(f"Web page ({b.get('title') or url}):\n{b['text']}")
+        except Exception:
+            pass
+
+    if "calculator" in tools:
+        try:
+            expr = user_input.strip()
+            if re.fullmatch(r"[0-9\s+\-*/().%]+", expr) and any(c.isdigit() for c in expr):
+                used.append("calculator")
+                context_parts.append("Calculation: " + registry.calculator(expr))
         except Exception:
             pass
 

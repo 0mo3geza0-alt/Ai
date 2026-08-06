@@ -22,6 +22,8 @@ from memory.router import router as memory_router
 from agents.router import router as agents_router
 from security.router import router as security_router
 from billing.router import router as billing_router
+from tools.router import router as tools_router
+from planning.router import router as planning_router
 from security.middleware import SecurityMiddleware
 from memory import embeddings as _embeddings
 from workspace.storage import init_storage
@@ -57,6 +59,8 @@ app.include_router(memory_router)
 app.include_router(agents_router)
 app.include_router(security_router)
 app.include_router(billing_router)
+app.include_router(tools_router)
+app.include_router(planning_router)
 
 app.add_middleware(SecurityMiddleware)
 
