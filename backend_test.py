@@ -9,7 +9,7 @@ import sys
 import os
 
 # Base URL from frontend/.env
-BASE_URL = "https://git-hub-access-1.preview.emergentagent.com/api"
+BASE_URL = "https://git-project-tool.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@aiplatform.com"

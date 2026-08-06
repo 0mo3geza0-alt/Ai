@@ -6,7 +6,7 @@ import base64
 import requests
 import pytest
 
-BASE_URL = os.environ['REACT_APP_BACKEND_URL'].rstrip('/') if os.environ.get('REACT_APP_BACKEND_URL') else "https://git-hub-access-1.preview.emergentagent.com"
+BASE_URL = os.environ['REACT_APP_BACKEND_URL'].rstrip('/') if os.environ.get('REACT_APP_BACKEND_URL') else "https://git-project-tool.preview.emergentagent.com"
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@aiplatform.com"

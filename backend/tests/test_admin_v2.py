@@ -5,7 +5,7 @@ import pytest
 import requests
 from datetime import datetime
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://git-hub-access-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://git-project-tool.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@aiplatform.com"
