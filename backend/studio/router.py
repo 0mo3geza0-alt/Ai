@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from core.db import get_db
 from core.base_models import utcnow
+from core.logging import logger
 from auth.deps import require_permission, get_current_user
 from workspace.storage import put_object, get_object, APP_NAME
 from llm import gateway
@@ -88,6 +89,11 @@ class AudioBody(BaseModel):
     text: str
     voice: str = "alloy"
     model: str = "tts-1"
+
+
+class VoiceChatBody(BaseModel):
+    message: str
+    voice: str = "nova"
 
 
 def _iso(v):
@@ -648,6 +654,58 @@ async def gen_audio(org_id: str, body: AudioBody, ctx: dict = Depends(require_pe
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "audio", body.text[:60], body.text,
                               storage_path=path, content_type="audio/mpeg", meta={"voice": body.voice})
     return {"id": cid, "url": f"/api/orgs/{org_id}/creations/{cid}/file", "credits": remaining}
+
+
+# ----------------------------------------------------------------- live voice conversation (inside chat)
+VOICE_CHAT_SYSTEM = (
+    "You are having a spoken, real-time voice conversation. Reply the way a person would speak out loud: "
+    "natural, warm and concise (usually 1-3 short sentences). Do NOT use markdown, bullet points, code blocks, "
+    "emojis or headings — just plain spoken sentences. Always answer in the SAME language the user spoke in. "
+    "If the user asks for something long, give a short spoken summary and offer to type out the details."
+)
+
+
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/voice-chat")
+async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Depends(require_permission("file:write"))):
+    """One spoken conversational turn: store user text, generate a concise reply + TTS audio (base64).
+    Audio is returned inline (not saved as a creation) to keep the voice conversation lightweight."""
+    db = get_db()
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Empty message")
+    user_id = ctx["user"]["id"]
+
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "user",
+                                       "content": msg, "kind": "text", "media": None, "created_at": utcnow()})
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m.get('content', '')}\n" for m in hist[-12:])
+
+    remaining = await _spend(db, org_id, "chat")
+    try:
+        reply = await gateway.generate_text(session_id=sid, system=VOICE_CHAT_SYSTEM,
+                                             prompt=msg, history=context)
+    except Exception as e:
+        await _refund(db, org_id, "chat")
+        raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    reply = (reply or "").strip() or "Sorry, I didn't catch that."
+
+    audio_b64 = None
+    try:
+        audio = await gateway.generate_audio(reply, voice=body.voice)
+        audio_b64 = base64.b64encode(audio).decode("ascii")
+    except Exception as e:
+        logger.error("Voice-chat TTS failed: %s", e)
+
+    await db.chat_messages.insert_one({"session_id": sid, "org_id": org_id, "role": "assistant",
+                                       "content": reply, "kind": "text", "media": None, "created_at": utcnow()})
+    if not session.get("title") or session.get("title") == "New chat":
+        await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"title": msg[:40]}})
+
+    return {"reply": reply, "audio": audio_b64, "mime": "audio/mpeg", "credits": remaining}
+
 
 
 # ----------------------------------------------------------------- creations history
