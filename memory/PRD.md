@@ -15,6 +15,14 @@ Build a production-grade Autonomous AI Agent Platform following a 15-phase roadm
 - `infra/`: Docker, docker-compose (artifacts).
 
 ## Implemented
+### Update (2025-07) — Video removed + Live Voice Conversation ✅ verified
+- Restored app after GitHub import: rebuilt missing `backend/.env` & `frontend/.env` (MONGO_URL, DB_NAME, JWT_SECRET, EMERGENT_LLM_KEY, REACT_APP_BACKEND_URL). Admin: admin@aiplatform.com / admin12345.
+- REMOVED all video generation (gateway `generate_video`/VIDEO_ENDPOINT, studio `/generate/video`, VideoBody, video cost, intent-router `video` action, admin video stat, and all frontend video UI). Backend tested 5/5.
+- ADDED Feature 1 "Live Voice Conversation" INSIDE chat: `POST /api/orgs/{org}/chat/sessions/{sid}/voice-chat {message, voice}` -> concise spoken reply + inline base64 MP3 (not saved as creation), persists turns, spends 1 chat credit, VibeVerse identity enforced. Frontend uses browser Web Speech API (STT) + plays TTS; animated voice overlay in Chat.js. Backend tested 7/7.
+- Voice/voiceover also still works via unified chat intent (kind='voice') and `/generate/audio` (real TTS via Emergent key).
+- Remaining chosen roadmap for this session: (2) Chat-with-files RAG, (3) Prompt Gallery, (4) Remix, (5) Agent Marketplace + scheduling (scheduling prioritized per user).
+
+
 ### Phase 1 — Foundation (2026-08-05) ✅ verified
 - Core config/logging/errors/db/base-model modules.
 - `GET /api/health` (pings Mongo), `GET /api/version`, `GET /api/`.
