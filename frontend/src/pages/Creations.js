@@ -6,7 +6,7 @@ import { FileText, Code2, Image as ImageIcon, AudioLines, Video, Music, Search, 
 import { api } from "@/context/AuthContext";
 
 const ICONS = { document: FileText, code: Code2, image: ImageIcon, audio: AudioLines, video: Video, music: Music, research: Search };
-const TABS = [{ id: "all", l: "All" }, { id: "document", l: "Docs" }, { id: "code", l: "Code" }, { id: "image", l: "Images" }, { id: "audio", l: "Voice" }, { id: "video", l: "Video" }, { id: "music", l: "Music" }, { id: "research", l: "Research" }];
+const TABS = [{ id: "all", l: "All" }, { id: "document", l: "Docs" }, { id: "code", l: "Code" }, { id: "image", l: "Images" }, { id: "audio", l: "Voice" }, { id: "music", l: "Music" }, { id: "research", l: "Research" }];
 
 export default function Creations() {
   const { activeOrg } = useOutletContext();

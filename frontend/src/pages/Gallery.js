@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const ICONS = { document: FileText, code: Code2, image: ImageIcon, audio: AudioLines, video: Video, music: Music, research: Search };
-const TABS = [{ id: "all", l: "All" }, { id: "image", l: "Images" }, { id: "video", l: "Video" }, { id: "music", l: "Music" }, { id: "document", l: "Docs" }, { id: "research", l: "Research" }];
+const TABS = [{ id: "all", l: "All" }, { id: "image", l: "Images" }, { id: "music", l: "Music" }, { id: "document", l: "Docs" }, { id: "research", l: "Research" }];
 
 function Media({ token, url, kind }) {
   const [blob, setBlob] = useState(null);

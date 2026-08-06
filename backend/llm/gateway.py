@@ -76,7 +76,7 @@ async def stream_text(session_id: str, system: str, prompt: str,
 # ---------------------------------------------------------------- intent routing (unified chat)
 import json as _json
 
-ACTIONS = {"chat", "image", "video", "voice", "document", "code", "webapp"}
+ACTIONS = {"chat", "image", "voice", "document", "code", "webapp"}
 
 
 def extract_json(text: str) -> dict | None:
@@ -102,14 +102,14 @@ def strip_fences(text: str) -> str:
 
 
 ROUTER_SYSTEM = (
-    "You are an intent router for a multimodal AI assistant that can chat, generate images, videos, "
+    "You are an intent router for a multimodal AI assistant that can chat, generate images, "
     "voiceovers, documents, code, and self-contained web apps/games/sites. "
     "Given the user's latest message (and prior context), pick the SINGLE best action and reply with STRICT JSON ONLY, no prose. "
-    'Schema: {"action": one of ["chat","image","video","voice","document","code","webapp"], '
+    'Schema: {"action": one of ["chat","image","voice","document","code","webapp"], '
     '"prompt": "a clear, self-contained instruction derived from the user message for that action; for chat, restate the user question", '
     '"language": "programming language for code (e.g. python, javascript), else empty string", '
     '"reply": "one short friendly sentence in the SAME LANGUAGE as the user to introduce the result (e.g. this is your image)"}. '
-    "Rules: image = wants a picture/photo/logo/art/illustration. video = wants a video/clip/animation/motion. "
+    "Rules: image = wants a picture/photo/logo/art/illustration. "
     "voice = wants speech/narration/voiceover/audio spoken from text. document = wants an article/report/essay/plan/story/long-form text. "
     "code = wants a code snippet/function/script/algorithm in a language. "
     "webapp = wants a website/landing page/web game/web app/UI/tool that runs in a browser. "
@@ -205,8 +205,6 @@ async def generate_audio(text: str, voice: str = "alloy", model: str = "tts-1") 
 
 
 # ---------------------------------------------------------------- fal.ai (Universal Key: queue inference only)
-# High-quality text-to-video with built-in prompt optimizer for strong prompt adherence.
-VIDEO_ENDPOINT = "fal-ai/minimax/hailuo-02/standard/text-to-video"
 MUSIC_ENDPOINT = "fal-ai/stable-audio"
 
 
@@ -242,17 +240,6 @@ def _download(url: str) -> bytes:
     r = requests.get(url, timeout=120)
     r.raise_for_status()
     return r.content
-
-
-def generate_video(prompt: str, duration: str = "6") -> tuple[bytes, str]:
-    result = _fal_run(VIDEO_ENDPOINT,
-                      {"prompt": prompt, "prompt_optimizer": True, "duration": duration},
-                      timeout=600)
-    video = result.get("video") or {}
-    url = video.get("url")
-    if not url:
-        raise RuntimeError("No video returned")
-    return _download(url), video.get("content_type", "video/mp4")
 
 
 def generate_music(prompt: str, seconds: int = 30) -> tuple[bytes, str]:

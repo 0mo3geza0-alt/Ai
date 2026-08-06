@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Users, Building2, FolderGit2, KeyRound, MessageSquare, FileText, Code2, Image as ImageIcon, AudioLines, Video, Music, Search as SearchIcon, Trash2, Ban, CheckCircle2, ShieldCheck, Coins, Gift, History, RefreshCw } from "lucide-react";
+import { Users, Building2, FolderGit2, KeyRound, MessageSquare, FileText, Code2, Image as ImageIcon, AudioLines, Music, Search as SearchIcon, Trash2, Ban, CheckCircle2, ShieldCheck, Coins, Gift, History, RefreshCw } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,6 @@ export default function Admin() {
     { label: "Code gens", value: stats.creations.code, icon: Code2 },
     { label: "Images", value: stats.creations.image, icon: ImageIcon },
     { label: "Voice", value: stats.creations.audio, icon: AudioLines },
-    { label: "Videos", value: stats.creations.video, icon: Video },
     { label: "Music", value: stats.creations.music, icon: Music },
   ] : [];
 

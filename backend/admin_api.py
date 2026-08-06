@@ -46,7 +46,7 @@ class GrantAllBody(BaseModel):
 async def stats(admin: dict = Depends(require_admin)):
     db = get_db()
     creations = {}
-    for k in ["document", "code", "image", "audio", "video", "music", "research"]:
+    for k in ["document", "code", "image", "audio", "music", "research"]:
         creations[k] = await db.creations.count_documents({"kind": k})
     return {
         "users": await db.users.count_documents({}),

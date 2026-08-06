@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, Video, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
@@ -13,13 +13,12 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const SUGGESTIONS = [
   { icon: ImageIcon, label: "Generate an image", text: "Generate an image of a futuristic city at sunset" },
-  { icon: Video, label: "Make a video", text: "Make a short video of waves crashing on a beach" },
   { icon: Globe, label: "Build a web app", text: "Build a landing page for a coffee shop with a hero and menu" },
   { icon: Code2, label: "Write code", text: "Write a Python function that checks if a number is prime" },
   { icon: AudioLines, label: "Create a voiceover", text: "Create a voiceover: Welcome to VibeVerse, your all-in-one AI studio" },
 ];
 
-const EXT = { image: "png", video: "mp4", voice: "mp3", audio: "mp3" };
+const EXT = { image: "png", voice: "mp3", audio: "mp3" };
 
 function CopyBtn({ text }) {
   const [done, setDone] = useState(false);
@@ -65,19 +64,6 @@ function VoiceBlock({ media }) {
   );
 }
 
-function VideoBlock({ m, media, pollJob }) {
-  const status = media?.status || "processing";
-  useEffect(() => { if (status === "processing" && media?.cid) pollJob(m); }, [status]); // eslint-disable-line
-  if (status === "processing") return <div className="mt-3 h-40 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#0C0C14] flex flex-col items-center justify-center gap-2 text-[#64748B] text-sm" data-testid="chat-video-processing"><Dots /> Rendering video — 1-3 min…</div>;
-  if (status === "failed") return <div className="mt-3 p-3 rounded-xl border border-red-500/30 bg-red-500/5 text-red-400 text-sm">Video failed to render. Please try again.</div>;
-  return (
-    <div className="mt-3 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-[#0C0C14]">
-      <BlobMedia url={media.url} fallbackH="h-40" render={(src) => <video data-testid="chat-video" src={src} controls className="w-full max-h-[420px]" />} />
-      <div className="p-2"><button onClick={() => downloadBlob(media.url, "nexus-video.mp4")} className="inline-flex items-center gap-1.5 text-xs text-[#A855F7] hover:underline"><Download className="w-3.5 h-3.5" /> Download</button></div>
-    </div>
-  );
-}
-
 function CodeBlock({ m, media }) {
   return (
     <div className="mt-3 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-[#0A0A12]">
@@ -117,7 +103,6 @@ function MediaBlock({ m, pollJob }) {
   const media = m.media;
   if (m.kind === "image" && media?.url) return <ImageBlock media={media} />;
   if (m.kind === "voice" && media?.url) return <VoiceBlock media={media} />;
-  if (m.kind === "video") return <VideoBlock m={m} media={media} pollJob={pollJob} />;
   if (m.kind === "code") return <CodeBlock m={m} media={media} />;
   if (m.kind === "webapp") return <WebappBlock m={m} media={media} pollJob={pollJob} />;
   return null;
@@ -205,7 +190,7 @@ export default function Chat() {
           else if (ev.type === "done") {
             const mm = ev.message;
             patchLast(() => ({ role: "assistant", content: mm.content, kind: mm.kind, media: mm.media }));
-            if ((mm.kind === "video" || mm.kind === "webapp") && mm.media?.status === "processing") pollJob({ media: mm.media });
+            if (mm.kind === "webapp" && mm.media?.status === "processing") pollJob({ media: mm.media });
           }
         }
       }
@@ -240,7 +225,7 @@ export default function Chat() {
             <div className="h-full flex flex-col items-center justify-center text-center">
               <span className="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-5 glow-border"><Sparkles className="w-6 h-6 text-white" /></span>
               <h2 className="font-display text-xl font-semibold mb-2">What do you want to create?</h2>
-              <p className="text-[#64748B] max-w-md mb-6">Ask anything — images, videos, voiceovers, code, documents or full web apps. VibeVerse figures out what to build and returns it right here.</p>
+              <p className="text-[#64748B] max-w-md mb-6">Ask anything — images, voiceovers, code, documents or full web apps. VibeVerse figures out what to build and returns it right here.</p>
               <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
                 {SUGGESTIONS.map((s, i) => (
                   <button key={i} data-testid={`chat-suggestion-${i}`} onClick={() => send(s.text)}
@@ -296,7 +281,7 @@ export default function Chat() {
               placeholder="Describe what you want to create…" rows={1} className="resize-none bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white focus:border-[#4F46E5] transition-colors rounded-xl" />
             <Button data-testid="chat-send-btn" onClick={() => send()} disabled={sending || uploading || (!input.trim() && !attachment)} className="rounded-xl h-10 w-10 p-0 ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity shrink-0"><Send className="w-4 h-4" /></Button>
           </div>
-          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Attach an image or file, or just ask — VibeVerse makes images, videos, voice, code, documents & web apps.</p>
+          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Attach an image or file, or just ask — VibeVerse makes images, voice, code, documents & web apps.</p>
         </div>
       </div>
     </div>

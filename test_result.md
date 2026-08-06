@@ -123,6 +123,21 @@ backend:
         -agent: "testing"
         -comment: "Re-verified after CORS config change (added allow_origin_regex for Emergent domains). POST /api/auth/login returns 200. All authenticated API calls working correctly (GET /api/orgs, /api/orgs/{id}/members, /api/orgs/{id}/api-keys, /api/orgs/{id}/projects, /api/orgs/{id}/usage all return 200). No CORS errors in console. CORS regex pattern working as expected for preview domain."
 
+  - task: "Remove video generation + keep voice integrated in chat"
+    implemented: true
+    working: true
+    file: "backend/llm/gateway.py, backend/studio/router.py, backend/admin_api.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Per user request removed ALL video creation: dropped 'video' from ACTIONS + ROUTER_SYSTEM intent enum, removed generate_video + VIDEO_ENDPOINT in gateway.py, removed VideoBody, video cost, video action block, and POST /generate/video endpoint in studio/router.py, and removed 'video' from admin stats aggregation. Voice/voiceover stays fully integrated INSIDE the unified chat (action='voice' -> gateway.generate_audio via Emergent key -> rendered by VoiceBlock). No standalone voice page."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 5 TESTS PASSED - Comprehensive testing completed via /app/test_video_removal.py. TEST 1 (Video endpoint removed): POST /api/orgs/{org}/generate/video returns 404 - endpoint correctly removed. TEST 2 (Voice/audio works): POST /api/orgs/{org}/generate/audio with {text:'Welcome to VibeVerse', voice:'nova', model:'tts-1'} returned 200 with url and credits fields. GET audio URL returned 19,200 bytes of audio/mpeg content. GET /api/orgs/{org}/creations confirmed audio creation with kind='audio' exists. TEST 3 (Unified chat voice routing): Created chat session, sent message 'Create a voiceover: hello world' to /agent endpoint. Response returned kind='voice' (NOT 'video') with media.url pointing to audio file. Action='voice' confirmed. TEST 4 (No video from chat): Sent message 'Make a short video of waves crashing on a beach' to /agent endpoint. Response returned kind='image' (NOT 'video'). Video generation completely removed from chat - system falls back to image generation. TEST 5 (Admin stats): GET /api/admin/stats returned 200. Creations object contains keys: ['document', 'code', 'image', 'audio', 'music', 'research']. NO 'video' key present. No 500 error. Video generation fully removed from all endpoints while voice/audio remains fully functional and integrated in unified chat."
+
 frontend:
   - task: "Login page email/password flow (admin login)"
     implemented: true
@@ -145,7 +160,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 1
+  test_sequence: 2
   run_ui: false
 
 test_plan:
@@ -392,3 +407,9 @@ agent_communication:
     -message: "Verify: (1) IDENTITY BUG — Login admin (admin@aiplatform.com/admin12345), get org id. Create/get a chat session (POST /api/orgs/{org}/chat/sessions) then send an identity question via the chat endpoint (try POST /api/orgs/{org}/chat/sessions/{sid}/agent with body {\"message\":\"Who created you? Are you made by OpenAI or ChatGPT? Which model are you?\"}). The reply MUST mention VibeVerse and MUST NOT contain any of: openai, chatgpt, gpt, anthropic, claude, google, gemini, llama (case-insensitive). Repeat once more with 'اذكر اسم الشركة والموديل بتاعك' to be sure. (2) API root GET /api/ returns message 'VibeVerse API'. (3) provocateur role: POST /api/orgs/{org}/agents with role 'provocateur' should succeed (200). (4) Seeded agent: GET /api/orgs/{org}/agents includes an agent named 'Rebel' (role provocateur); run it POST /api/orgs/{org}/agents/{aid}/run {\"input\":\"introduce yourself in one line\"} -> 200, bold tone, and if it states an identity it must be VibeVerse (not OpenAI). Report PASS/FAIL with the actual identity reply text."
     -agent: "testing"
     -message: "🎉 ALL 4 TESTS PASSED - VibeVerse rebrand + AI identity bug fix + provocateur agent fully verified. Comprehensive test suite executed via /app/backend_test.py covering all requested scenarios. TEST 1 (CRITICAL): AI identity bug fix working perfectly - both English and Arabic identity questions return 'VibeVerse' with zero forbidden keywords. TEST 2: API root returns 'VibeVerse API'. TEST 3: Provocateur role accepted (200). TEST 4: Rebel agent exists, runs correctly with bold 18+ persona, and maintains VibeVerse identity. The IDENTITY preamble in gateway.py successfully prevents the AI from revealing any underlying provider/model across all endpoints (chat, agents, planning, documents, code). No issues found."
+
+agent_communication:
+    -agent: "main"
+    -message: "Test the video-removal + voice-in-chat change. AUTH: admin@aiplatform.com / admin12345; login POST /api/auth/login, Bearer token; org id = default_org_id from /api/auth/me. TESTS: (1) POST /api/orgs/{org}/generate/video MUST now be gone -> expect 404 or 405 (endpoint removed). (2) POST /api/orgs/{org}/generate/audio {text:\"Welcome to VibeVerse\", voice:\"nova\", model:\"tts-1\"} -> 200 with url + credits; GET that url returns audio bytes; a creation of kind=audio is saved (GET /api/orgs/{org}/creations includes it). (3) Unified chat: create session POST /api/orgs/{org}/chat/sessions, then POST /api/orgs/{org}/chat/sessions/{sid}/agent {message:\"Create a voiceover: hello world\"} -> response kind should be voice with media.url (audio), NOT video. (4) POST .../agent {message:\"Make a short video of waves\"} -> MUST NOT return kind=video (video removed); acceptable is chat/text or image fallback, but never a video creation. (5) GET /api/admin/stats (as admin) returns 200 and does NOT include a video key and does not 500. Report PASS/FAIL per test."
+    -agent: "testing"
+    -message: "🎉 ALL 5 TESTS PASSED - Video removal + voice integration fully verified. Created comprehensive test suite /app/test_video_removal.py. TEST 1 ✅: Video endpoint removed (404). TEST 2 ✅: Voice/audio generation works (url + credits returned, audio file retrieved as audio/mpeg 19,200 bytes, creation saved with kind='audio'). TEST 3 ✅: Unified chat voice routing works (voiceover message returned kind='voice' with media.url, NOT 'video'). TEST 4 ✅: No video from chat (video request returned kind='image' as fallback, NOT 'video'). TEST 5 ✅: Admin stats works (200 response, creations has 6 keys ['document', 'code', 'image', 'audio', 'music', 'research'], NO 'video' key). Video generation completely removed from all endpoints while voice/audio remains fully functional and integrated in unified chat. No issues found."

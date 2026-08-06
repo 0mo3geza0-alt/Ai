@@ -18,7 +18,7 @@ from llm import gateway
 
 router = APIRouter(prefix="/api")
 
-COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "video": 15, "music": 8, "research": 2}
+COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2}
 
 
 # ----------------------------------------------------------------- schemas
@@ -64,10 +64,6 @@ class ImageBody(BaseModel):
     prompt: str
     variations: int = 1
     modifier: str | None = None   # none | no-background | upscale | photorealistic | anime | 3d
-
-
-class VideoBody(BaseModel):
-    prompt: str
 
 
 class MusicBody(BaseModel):
@@ -343,15 +339,6 @@ async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
                {"type": "webapp", "cid": cid, "status": "processing",
                 "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
 
-    if action == "video":
-        await _spend(db, org_id, "video")
-        cid = await _log_creation(db, org_id, user_id, "video", prompt[:60], prompt, meta={"status": "processing"})
-        await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
-        asyncio.create_task(_run_media_job(org_id, cid, "video", lambda: gateway.generate_video(prompt), "mp4"))
-        return "video", (reply or "Rendering your video — this can take 1-3 minutes…"), \
-               {"type": "video", "cid": cid, "status": "processing",
-                "status_url": f"/api/orgs/{org_id}/creations/{cid}/status", "url": _asset_url(org_id, cid)}
-
     return "text", (reply or ""), None
 
 
@@ -584,7 +571,7 @@ async def gen_image(org_id: str, body: ImageBody, ctx: dict = Depends(require_pe
     return {"images": results, "credits": org.get("credits", 0)}
 
 
-# ----------------------------------------------------------------- video (fal.ai, background job)
+# ----------------------------------------------------------------- media background job
 async def _run_media_job(org_id: str, cid: str, kind: str, fn, ext: str):
     db = get_db()
     try:
@@ -596,16 +583,6 @@ async def _run_media_job(org_id: str, cid: str, kind: str, fn, ext: str):
     except Exception as e:
         await _refund(db, org_id, kind)
         await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "failed", "error": str(e)[:200]}})
-
-
-@router.post("/orgs/{org_id}/generate/video")
-async def gen_video(org_id: str, body: VideoBody, ctx: dict = Depends(require_permission("file:write"))):
-    db = get_db()
-    remaining = await _spend(db, org_id, "video")
-    cid = await _log_creation(db, org_id, ctx["user"]["id"], "video", body.prompt[:60], body.prompt, meta={"status": "processing"})
-    await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
-    asyncio.create_task(_run_media_job(org_id, cid, "video", lambda: gateway.generate_video(body.prompt), "mp4"))
-    return {"id": cid, "status": "processing", "credits": remaining}
 
 
 @router.post("/orgs/{org_id}/generate/music")

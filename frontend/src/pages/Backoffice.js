@@ -78,7 +78,7 @@ function Panel({ me, onLogout }) {
   const fUsers = users.filter((u) => !q || (u.email + (u.name || "")).toLowerCase().includes(q.toLowerCase()));
   const fOrgs = orgs.filter((o) => !q || (o.name + (o.owner_email || "")).toLowerCase().includes(q.toLowerCase()));
 
-  const cards = stats ? [["Users", stats.users], ["Orgs", stats.organizations], ["Projects", stats.projects], ["API Keys", stats.api_keys], ["Chats", stats.chat_messages], ["Images", stats.creations.image], ["Videos", stats.creations.video], ["Music", stats.creations.music]] : [];
+  const cards = stats ? [["Users", stats.users], ["Orgs", stats.organizations], ["Projects", stats.projects], ["API Keys", stats.api_keys], ["Chats", stats.chat_messages], ["Images", stats.creations.image], ["Music", stats.creations.music]] : [];
 
   return (
     <div className="min-h-screen text-[#F8FAFC] relative z-10">
