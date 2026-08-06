@@ -12,12 +12,12 @@ from email.message import EmailMessage
 
 from core.logging import logger
 
-SMTP_HOST = os.environ.get("BREVO_SMTP_HOST", "smtp-relay.brevo.com")
-SMTP_PORT = int(os.environ.get("BREVO_SMTP_PORT", "587"))
-SMTP_LOGIN = os.environ.get("BREVO_SMTP_LOGIN", "")
-SMTP_KEY = os.environ.get("BREVO_SMTP_KEY", "")
-FROM_EMAIL = os.environ.get("BREVO_FROM_EMAIL", "")
-FROM_NAME = os.environ.get("BREVO_FROM_NAME", "VibeVerse")
+SMTP_HOST = os.environ.get("SMTP_HOST") or os.environ.get("BREVO_SMTP_HOST", "smtp-relay.brevo.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT") or os.environ.get("BREVO_SMTP_PORT", "587"))
+SMTP_LOGIN = os.environ.get("SMTP_LOGIN") or os.environ.get("BREVO_SMTP_LOGIN", "")
+SMTP_KEY = os.environ.get("SMTP_KEY") or os.environ.get("BREVO_SMTP_KEY", "")
+FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL") or os.environ.get("BREVO_FROM_EMAIL", "")
+FROM_NAME = os.environ.get("SMTP_FROM_NAME") or os.environ.get("BREVO_FROM_NAME", "VibeVerse")
 
 
 def _is_configured() -> bool:
