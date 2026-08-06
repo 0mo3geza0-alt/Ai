@@ -153,3 +153,25 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - `Chat.js` now runs the mic CONCURRENTLY while the agent's TTS plays. `speakingRef`/`bargedRef` guards: when the user starts talking (interim transcript ≥3 chars) mid-reply, it instantly `stopAudio()` and switches to listening → captures the new turn (real-call barge-in). `onSpokenEnd` no longer waits to start the mic (already hot).
 - Recognition locale now set per dialect via `DIALECT_LANG` (ar-EG/ar-SA/ar-LB) for better Arabic capture.
 - Manual tap-to-interrupt on the orb still works. Caveat: Web Speech API can't take an echo-cancelled stream, so the mic may hear the TTS on open speakers → headphones recommended for cleanest interruptions (noted in overlay hint).
+
+---
+
+## تحديثات هذه الجلسة (Email Verification + Atlas)
+
+### 1) مصادقة حقيقية بالإيميل (Email Verification) — مبنية، بانتظار تفعيل مزوّد البريد
+- التسجيل يُنشئ حساباً **غير مفعّل** ويرسل **كود 6 أرقام** (لا تُصدر توكنات حتى التفعيل).
+- Endpoints: `POST /api/auth/register`, `POST /api/auth/verify-email`, `POST /api/auth/resend-code`.
+- منع تسجيل الدخول قبل التفعيل (403 code=email_not_verified). مستخدمو Google والمدير مفعّلون تلقائياً.
+- الإرسال عبر Brevo SMTP (`auth/email_service.py`) — **متوقف مؤقتاً** لأن حساب Brevo يحتاج تفعيل transactional من Brevo. يدعم Gmail SMTP كبديل بتغيير متغيرات SMTP_*.
+
+### 2) منع تعدد الحسابات (`auth/anti_fraud.py`)
+- حظر الإيميلات المؤقتة/الوهمية (قائمة نطاقات).
+- حد أقصى للحسابات المفعّلة لكل IP (MAX_ACCOUNTS_PER_IP) ولكل جهاز (MAX_ACCOUNTS_PER_DEVICE).
+- بصمة جهاز من الواجهة (`src/lib/deviceId.js`) تُرسل كـ X-Device-Fingerprint.
+
+### 3) قاعدة البيانات على MongoDB Atlas
+- MONGO_URL يشير الآن إلى Atlas (cluster0.syparym) → البيانات محفوظة عبر كل الدردشات/النشر.
+- Network Access = 0.0.0.0/0.
+
+### ملف مفاتيح البيئة
+- `/app/ENV_KEYS.md` يوثّق كل المفاتيح (مستثنى من GitHub) للّصق في أي حساب/دردشة Emergent جديد.
