@@ -19,7 +19,7 @@ from llm import gateway
 
 router = APIRouter(prefix="/api")
 
-COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2}
+COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2, "nexus": 8}
 
 
 # ----------------------------------------------------------------- schemas
@@ -224,6 +224,60 @@ async def chat_send(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Depen
 
 def _asset_url(org_id: str, cid: str) -> str:
     return f"/api/orgs/{org_id}/creations/{cid}/file"
+
+
+class NexusBody(BaseModel):
+    message: str
+
+
+async def _is_premium_or_admin(db, org_id: str, user: dict) -> bool:
+    if user.get("global_role") == "admin":
+        return True
+    org = await db.organizations.find_one({"_id": ObjectId(org_id)})
+    return bool(org and org.get("plan") == "pro")
+
+
+@router.post("/orgs/{org_id}/chat/sessions/{sid}/nexus-pro")
+async def nexus_pro_send(org_id: str, sid: str, body: NexusBody,
+                         ctx: dict = Depends(require_permission("file:write"))):
+    """Premium 'Nexus Pro' tri-model council agent (Claude + GPT + Gemini)."""
+    db = get_db()
+    if not await _is_premium_or_admin(db, org_id, ctx["user"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Nexus Pro وكيل حصري لمشتركي Premium ($200). قم بترقية خطتك للوصول إليه.")
+    session = await db.chat_sessions.find_one({"_id": ObjectId(sid), "org_id": org_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    remaining = await _spend(db, org_id, "nexus")
+    hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
+    context = "".join(f"{m['role']}: {m['content']}\n" for m in hist)
+    try:
+        reply = await gateway.generate_council(
+            session_id=sid, system=gateway.NEXUS_PRO_SYSTEM,
+            prompt=f"user: {body.message}", history=context)
+    except Exception as e:
+        await _refund(db, org_id, "nexus")
+        raise HTTPException(status_code=502, detail=f"Nexus Pro error: {e}")
+    ts = utcnow()
+    await db.chat_messages.insert_many([
+        {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message,
+         "kind": "text", "created_at": ts},
+        {"session_id": sid, "org_id": org_id, "role": "assistant", "content": reply,
+         "kind": "nexus", "created_at": ts},
+    ])
+    upd = {"updated_at": ts}
+    if session.get("title", "New chat") == "New chat":
+        upd["title"] = body.message[:40]
+    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
+    return {"reply": reply, "credits": remaining, "title": upd.get("title", session.get("title"))}
+
+
+@router.get("/orgs/{org_id}/nexus-pro/access")
+async def nexus_pro_access(org_id: str, ctx: dict = Depends(require_permission("file:read"))):
+    """Lets the frontend know whether the current user can use Nexus Pro."""
+    db = get_db()
+    return {"allowed": await _is_premium_or_admin(db, org_id, ctx["user"])}
 
 
 WEBAPP_SYSTEM = (

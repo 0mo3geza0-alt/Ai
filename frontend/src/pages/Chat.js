@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb, Zap, Lock } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
@@ -166,6 +166,8 @@ export default function Chat() {
   const [pinnedDoc, setPinnedDoc] = useState(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryCat, setGalleryCat] = useState(0);
+  const [nexusMode, setNexusMode] = useState(false);
+  const canNexus = user?.global_role === "admin" || activeOrg?.plan === "pro";
   const fileRef = useRef(null);
   const endRef = useRef(null);
   // --- live voice conversation ---
@@ -277,6 +279,19 @@ export default function Chat() {
     setSending(true);
     const patchLast = (fn) => setMessages((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c; });
     try {
+      if (nexusMode) {
+        patchLast((l) => ({ ...l, content: "🔥 Nexus Pro يستشير Claude + GPT + Gemini للوصول لأفضل إجابة…", _nexus: true }));
+        try {
+          const { data } = await api.post(`/orgs/${oid}/chat/sessions/${sid}/nexus-pro`, { message: text });
+          patchLast(() => ({ role: "assistant", content: data.reply, kind: "nexus", media: null }));
+        } catch (err) {
+          const msg = formatApiErrorDetail(err.response?.data?.detail) || "Nexus Pro error";
+          patchLast((l) => ({ ...l, _streaming: false, content: msg }));
+          toast.error(msg);
+          if (err.response?.status === 403) setNexusMode(false);
+        }
+        return;
+      }
       const token = localStorage.getItem("token");
       const resp = await fetch(`${API}/orgs/${oid}/chat/sessions/${sid}/agent/stream`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -627,6 +642,30 @@ export default function Chat() {
               </div>
             </div>
           )}
+          <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="nexus-toggle-btn"
+              onClick={() => {
+                if (!canNexus) { toast.error("Nexus Pro وكيل حصري لمشتركي Premium ($200). قم بالترقية للوصول إليه."); return; }
+                setNexusMode((v) => !v);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                nexusMode
+                  ? "bg-gradient-to-r from-[#6366F1] to-[#A855F7] text-white border-transparent shadow-[0_0_18px_-2px_rgba(168,85,247,0.7)]"
+                  : "bg-[#12121C] text-[#A855F7] border-[rgba(168,85,247,0.35)] hover:border-[#A855F7]"
+              }`}
+              title={canNexus ? "وكيل خارق يمزج Claude + GPT + Gemini" : "حصري للبريميم"}
+            >
+              {canNexus ? <Zap className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              Nexus Pro
+              <span className="text-[10px]">🔥</span>
+              {!canNexus && <span className="ms-1 px-1.5 py-0.5 rounded-full bg-[#A855F7]/20 text-[#C4B5FD] text-[9px]">PRO</span>}
+            </button>
+            {nexusMode && (
+              <span className="text-[11px] text-[#94A3B8]">مزيج الـ 3 نماذج مُفعّل — أقوى إجابة ممكنة (٨ كريدت/رسالة)</span>
+            )}
+          </div>
           <div className="max-w-3xl mx-auto flex items-end gap-3">
             <input ref={fileRef} type="file" accept="image/*,.pdf,.txt,.csv,.md,.json,.docx" className="hidden" onChange={pickFile} data-testid="chat-file-input" />
             <Button data-testid="chat-attach-btn" onClick={() => fileRef.current?.click()} disabled={uploading || sending} variant="outline"

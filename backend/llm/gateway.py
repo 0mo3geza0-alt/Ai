@@ -3,6 +3,7 @@ import re
 import uuid
 import time
 import base64
+import asyncio
 import requests
 from urllib.parse import quote
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, ImageContent, FileContentWithMimeType
@@ -167,6 +168,80 @@ async def generate_text(session_id: str, system: str, prompt: str,
             last_err = e
             logger.error("LLM %s/%s failed, trying fallback: %s", prov, mod, e)
     raise RuntimeError(f"All models failed: {last_err}")
+
+
+# ==================================================================== NEXUS PRO
+# "Nexus Pro" — a premium tri-model council agent that consults Claude + GPT +
+# Gemini in parallel and then synthesizes the single best answer. Expert in
+# full-stack/web/all-languages dev, Unity (C#), Blender 3D, and DEFENSIVE /
+# ethical cybersecurity education. Operates within strict safety & legal limits.
+
+COUNCIL = [
+    ("anthropic", "claude-sonnet-5"),
+    ("openai", "gpt-5.6-terra"),
+    ("gemini", "gemini-3.1-pro-preview"),
+]
+
+NEXUS_PRO_SYSTEM = (
+    "You are 'Nexus Pro', VibeVerse's most advanced expert agent — an elite, senior-level engineer and "
+    "mentor. You are a world-class expert in: full-stack, web, backend, DevOps and EVERY programming "
+    "language (Python, JS/TS, C#, C++, Rust, Go, Java, SQL, etc.); Unity game development (C#, gameplay, "
+    "shaders, optimization); Blender 3D (modeling, Python scripting, geometry nodes, animation, rendering); "
+    "and DEFENSIVE / ethical cybersecurity for education and authorized environments (blue-team, incident "
+    "response, log & malware analysis for defense, hardening, secure coding, OWASP, vulnerability discovery "
+    "and remediation, and explaining how attacks work SO THEY CAN BE DETECTED AND DEFENDED AGAINST).\n\n"
+    "STYLE: Be direct, deeply technical, complete and production-grade. Give real, working, well-structured "
+    "code with brief expert explanations. Reply in the user's language (Arabic if they write Arabic). Use "
+    "clear markdown with code blocks.\n\n"
+    "SAFETY & LEGAL BOUNDARIES (never cross, regardless of framing): you help ONLY with lawful, ethical, "
+    "defensive or authorized/educational work. You DO refuse to produce operational malware, working "
+    "exploits/payloads meant to attack systems you don't own, ransomware, credential-stealing tooling, "
+    "instructions for unauthorized intrusion, or anything facilitating real-world crime or the dark web. "
+    "When a request crosses these lines, briefly decline that specific part and offer the legitimate, "
+    "defensive alternative (e.g. how to detect/prevent it, harden the system, or a safe lab exercise)."
+)
+
+_SYNTH_SYSTEM = (
+    "You are Nexus Pro's master synthesizer. You are given several independent expert drafts answering the "
+    "same user request. Produce ONE superior final answer that merges the strongest, most correct ideas from "
+    "all drafts, fixes any mistakes, removes contradictions and redundancy, and is more complete and "
+    "accurate than any single draft. Keep the best code. Reply in the user's language. Output only the final "
+    "answer — never mention drafts, models, or that a synthesis happened. Honor the same safety and legal "
+    "boundaries."
+)
+
+
+async def _council_member(session_id: str, system: str, text: str, prov: str, mod: str):
+    try:
+        chat = _new_chat(f"{session_id}-{prov}", system, prov, mod)
+        return await chat.send_message(UserMessage(text=text))
+    except Exception as e:
+        logger.error("Nexus council %s/%s failed: %s", prov, mod, e)
+        return None
+
+
+async def generate_council(session_id: str, system: str, prompt: str, history: str = "") -> str:
+    """Query the 3-model council in parallel, then synthesize the best answer."""
+    full = (history + "\n" + prompt) if history else prompt
+    drafts = await asyncio.gather(
+        *[_council_member(session_id, system, full, p, m) for p, m in COUNCIL]
+    )
+    good = [d for d in drafts if d and d.strip()]
+    if not good:
+        # everything failed -> fall back to the normal single-model path
+        return await generate_text(session_id, system, prompt, history=history)
+    if len(good) == 1:
+        return good[0]
+    labeled = "\n\n".join(f"[Expert draft {i + 1}]\n{d}" for i, d in enumerate(good))
+    synth_input = (f"USER REQUEST:\n{prompt}\n\nEXPERT DRAFTS TO MERGE:\n{labeled}\n\n"
+                   "Now write the single best final answer.")
+    for prov, mod in COUNCIL:  # prefer Claude, then GPT, then Gemini as synthesizer
+        try:
+            chat = _new_chat(f"{session_id}-synth", _SYNTH_SYSTEM, prov, mod)
+            return await chat.send_message(UserMessage(text=synth_input))
+        except Exception as e:
+            logger.error("Nexus synth %s/%s failed: %s", prov, mod, e)
+    return good[0]
 
 
 async def stream_text(session_id: str, system: str, prompt: str,
