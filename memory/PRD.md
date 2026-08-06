@@ -148,3 +148,8 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 - **Arabic dialects**: `gateway.VOICE_DIALECTS` (egyptian/gulf/levantine/standard) + `dialect_directive()`. `VoiceChatBody.dialect` + persisted in user `preferences.dialect` (auth prefs endpoint). Frontend voice overlay has `voice-dialect-select`; passed on every voice turn.
 - Files: `backend/llm/gateway.py`, `backend/studio/router.py` (voice_chat), `backend/auth/router.py` (prefs), `frontend/src/pages/Chat.js`.
 - Verified live: Egyptian=playful (laughter), Gulf=sad (empathetic/slow), Levantine=excited — all returned valid MP3, tag stripped, dialect authentic.
+
+### Barge-in (talk-to-interrupt) (2026-06) ✅ code verified (no JS errors; live-mic behavior pending user test)
+- `Chat.js` now runs the mic CONCURRENTLY while the agent's TTS plays. `speakingRef`/`bargedRef` guards: when the user starts talking (interim transcript ≥3 chars) mid-reply, it instantly `stopAudio()` and switches to listening → captures the new turn (real-call barge-in). `onSpokenEnd` no longer waits to start the mic (already hot).
+- Recognition locale now set per dialect via `DIALECT_LANG` (ar-EG/ar-SA/ar-LB) for better Arabic capture.
+- Manual tap-to-interrupt on the orb still works. Caveat: Web Speech API can't take an echo-cancelled stream, so the mic may hear the TTS on open speakers → headphones recommended for cleanest interruptions (noted in overlay hint).

@@ -29,6 +29,9 @@ const DIALECT_OPTS = [
   { id: "standard", label: "🕌 فصحى" },
 ];
 
+// Speech-recognition locale per dialect so the mic captures spoken Arabic accurately.
+const DIALECT_LANG = { egyptian: "ar-EG", gulf: "ar-SA", levantine: "ar-LB", standard: "ar-SA" };
+
 // ---- Prompt Gallery: ready-made starter ideas grouped by category ----
 const PROMPT_GALLERY = [
   { cat: "Images", icon: ImageIcon, items: [
@@ -179,6 +182,8 @@ export default function Chat() {
   const audioCtxRef = useRef(null);
   const sourceRef = useRef(null);
   const pendingAudioRef = useRef(null);
+  const speakingRef = useRef(false);       // true while the agent's TTS is playing (for barge-in)
+  const bargedRef = useRef(false);         // guards against double barge-in in one turn
   const voiceOpenRef = useRef(false);
   const activeRef = useRef(null);
   const voiceRef = useRef("nova");
@@ -362,6 +367,8 @@ export default function Chat() {
 
   const stopVoiceMode = () => {
     voiceOpenRef.current = false;
+    speakingRef.current = false;
+    bargedRef.current = false;
     setVoiceOpen(false);
     setVStatus("idle");
     setVTranscript("");
@@ -375,14 +382,15 @@ export default function Chat() {
     if (!voiceOpenRef.current) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
+    if (recogRef.current) return; // only one recognition instance at a time
     const rec = new SR();
-    rec.lang = navigator.language || "en-US";
+    rec.lang = DIALECT_LANG[dialectRef.current] || navigator.language || "en-US";
     rec.interimResults = true;
     rec.continuous = false;
     recogRef.current = rec;
     setTapToHear(false);
-    setVTranscript("");
-    setVStatus("listening");
+    const monitoring = speakingRef.current; // started while the agent is still speaking (barge-in watch)
+    if (!monitoring) { setVTranscript(""); setVStatus("listening"); }
     let finalText = "";
     rec.onresult = (e) => {
       let interim = "";
@@ -390,7 +398,15 @@ export default function Chat() {
         const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) finalText += t; else interim += t;
       }
-      setVTranscript(finalText || interim);
+      const heard = (finalText || interim).trim();
+      // BARGE-IN: the user started talking while the agent is speaking -> cut the agent off instantly.
+      if (speakingRef.current && !bargedRef.current && heard.length >= 3) {
+        bargedRef.current = true;
+        speakingRef.current = false;
+        stopAudio();
+        setVStatus("listening");
+      }
+      setVTranscript(heard);
     };
     rec.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -399,10 +415,12 @@ export default function Chat() {
       }
     };
     rec.onend = () => {
+      recogRef.current = null;
       const said = finalText.trim();
       if (!voiceOpenRef.current) return;
-      if (said) handleVoiceTurn(said);
-      else if (vStatusIsListening()) listen(); // nothing captured, keep listening
+      if (said) { handleVoiceTurn(said); return; }
+      // Nothing captured — keep the mic hot (a real call never stops listening).
+      setTimeout(() => { if (voiceOpenRef.current && !recogRef.current) listen(); }, 250);
     };
     try { rec.start(); } catch { /* already started */ }
   };
@@ -412,7 +430,14 @@ export default function Chat() {
   // Play a reply. Primary path: Web Audio API (decode + buffer source) which plays reliably
   // even seconds after the last gesture. Fallback: HTMLAudio via Blob URL. Final fallback:
   // a visible "tap to hear" button so the voice reply is never lost.
-  const onSpokenEnd = () => { setTapToHear(false); if (voiceOpenRef.current) listen(); else setVStatus("idle"); };
+  const onSpokenEnd = () => {
+    speakingRef.current = false;
+    setTapToHear(false);
+    if (!voiceOpenRef.current) { setVStatus("idle"); return; }
+    // The mic is already monitoring (started when speech began). Just flip the status to listening.
+    setVStatus("listening");
+    if (!recogRef.current) listen();
+  };
 
   const speakHtmlAudio = (b64, mime) => {
     const el = getAudioEl();
@@ -432,8 +457,12 @@ export default function Chat() {
 
   const speak = async (b64, mime) => {
     pendingAudioRef.current = { b64, mime };
+    speakingRef.current = true;
+    bargedRef.current = false;
     setVStatus("speaking");
     setTapToHear(false);
+    // Start the mic RIGHT AWAY so the user can interrupt (barge-in) mid-sentence like a real call.
+    setTimeout(() => { if (voiceOpenRef.current && speakingRef.current && !recogRef.current) listen(); }, 150);
     const ctx = getAudioCtx();
     if (ctx) {
       try {
@@ -460,6 +489,10 @@ export default function Chat() {
   };
 
   const handleVoiceTurn = async (said) => {
+    speakingRef.current = false;
+    bargedRef.current = false;
+    try { recogRef.current?.abort?.(); } catch { /* noop */ }
+    recogRef.current = null;
     setVStatus("thinking");
     setVTranscript(said);
     let sid = activeRef.current;
@@ -493,8 +526,14 @@ export default function Chat() {
   // Tap the orb to interrupt the assistant while it's speaking and start listening immediately (like a call).
   const interrupt = () => {
     if (tapToHear) { playPending(); return; }
-    if (vStatus === "speaking") { stopAudio(); setTapToHear(false); listen(); }
-    else if (vStatus === "idle") { listen(); }
+    if (vStatus === "speaking") {
+      speakingRef.current = false;
+      bargedRef.current = true;
+      stopAudio();
+      setTapToHear(false);
+      setVStatus("listening");
+      if (!recogRef.current) listen();
+    } else if (vStatus === "idle") { listen(); }
   };
 
   const startVoiceMode = () => {
@@ -674,7 +713,7 @@ export default function Chat() {
           {/* Status + live captions */}
           <div className="flex flex-col items-center px-6 w-full max-w-lg">
             <p className="text-lg font-medium text-white mb-2" data-testid="voice-status">
-              {tapToHear ? "Tap to hear the reply" : listening ? "Listening…" : thinking ? "Thinking…" : speaking ? "Speaking — tap to interrupt" : "Tap the orb to talk"}
+              {tapToHear ? "Tap to hear the reply" : listening ? "Listening…" : thinking ? "Thinking…" : speaking ? "Speaking — just talk to interrupt" : "Tap the orb to talk"}
             </p>
             <p className="text-sm text-[#B4C0D3] text-center min-h-[44px] leading-relaxed" data-testid="voice-transcript">{vTranscript}</p>
             <div className="flex items-center gap-3 mt-6">
@@ -686,7 +725,7 @@ export default function Chat() {
                 <Button data-testid="voice-stop-btn" onClick={stopVoiceMode} variant="outline" className="rounded-full h-14 px-7 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20"><PhoneOff className="w-5 h-5 me-2" /> End conversation</Button>
               )}
             </div>
-            <p className="text-[11px] text-[#64748B] mt-5 text-center">Best on Chrome &amp; Edge · Tap the orb to interrupt · Saved to this chat</p>
+            <p className="text-[11px] text-[#64748B] mt-5 text-center">Best on Chrome &amp; Edge · Just start talking to interrupt · Headphones give the cleanest interruptions · Saved to this chat</p>
           </div>
         </div>
         );
