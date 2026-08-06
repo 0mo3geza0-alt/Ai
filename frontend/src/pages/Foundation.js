@@ -55,10 +55,10 @@ export default function Foundation() {
             <GitBranch className="w-3.5 h-3.5" /> {health?.phase || "Phase 1 — Foundation"}
           </div>
           <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-4">
-            Autonomous <span className="ai-gradient-text">AI Agent</span> Platform
+            Create anything with <span className="ai-gradient-text">VibeVerse</span>
           </h1>
           <p className="text-[#94A3B8] text-base md:text-lg max-w-2xl leading-relaxed mb-12">
-            Production-grade multi-agent system. Built phase by phase — each milestone fully runnable and tested. This is the Foundation boot screen.
+            VibeVerse is your independent, all-in-one AI studio — generate images, video, voice, code, documents, full web apps and autonomous agents. One platform, endless vibes.
           </p>
         </motion.div>
 

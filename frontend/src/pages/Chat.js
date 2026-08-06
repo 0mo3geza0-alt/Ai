@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   { icon: Video, label: "Make a video", text: "Make a short video of waves crashing on a beach" },
   { icon: Globe, label: "Build a web app", text: "Build a landing page for a coffee shop with a hero and menu" },
   { icon: Code2, label: "Write code", text: "Write a Python function that checks if a number is prime" },
-  { icon: AudioLines, label: "Create a voiceover", text: "Create a voiceover: Welcome to Nexus, your all-in-one AI studio" },
+  { icon: AudioLines, label: "Create a voiceover", text: "Create a voiceover: Welcome to VibeVerse, your all-in-one AI studio" },
 ];
 
 const EXT = { image: "png", video: "mp4", voice: "mp3", audio: "mp3" };
@@ -240,7 +240,7 @@ export default function Chat() {
             <div className="h-full flex flex-col items-center justify-center text-center">
               <span className="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-5 glow-border"><Sparkles className="w-6 h-6 text-white" /></span>
               <h2 className="font-display text-xl font-semibold mb-2">What do you want to create?</h2>
-              <p className="text-[#64748B] max-w-md mb-6">Ask anything — images, videos, voiceovers, code, documents or full web apps. Nexus figures out what to build and returns it right here.</p>
+              <p className="text-[#64748B] max-w-md mb-6">Ask anything — images, videos, voiceovers, code, documents or full web apps. VibeVerse figures out what to build and returns it right here.</p>
               <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
                 {SUGGESTIONS.map((s, i) => (
                   <button key={i} data-testid={`chat-suggestion-${i}`} onClick={() => send(s.text)}
@@ -296,7 +296,7 @@ export default function Chat() {
               placeholder="Describe what you want to create…" rows={1} className="resize-none bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white focus:border-[#4F46E5] transition-colors rounded-xl" />
             <Button data-testid="chat-send-btn" onClick={() => send()} disabled={sending || uploading || (!input.trim() && !attachment)} className="rounded-xl h-10 w-10 p-0 ai-gradient-bg text-white border-0 hover:opacity-90 transition-opacity shrink-0"><Send className="w-4 h-4" /></Button>
           </div>
-          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Attach an image or file, or just ask — Nexus makes images, videos, voice, code, documents & web apps.</p>
+          <p className="max-w-3xl mx-auto text-center text-[11px] text-[#64748B] mt-2">Attach an image or file, or just ask — VibeVerse makes images, videos, voice, code, documents & web apps.</p>
         </div>
       </div>
     </div>

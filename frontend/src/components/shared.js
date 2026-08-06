@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Hexagon } from "lucide-react";
 
-export const BRAND = "Nexus";
+export const BRAND = "VibeVerse";
 
 export function Logo({ size = "text-xl", to = "/" }) {
   return (

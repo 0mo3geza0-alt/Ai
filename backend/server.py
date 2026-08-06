@@ -137,6 +137,17 @@ async def _seed_admin():
     if not membership:
         await db.memberships.insert_one({"org_id": str(org_id), "user_id": str(user_id),
                                          "role": "owner", "created_at": utcnow()})
+    # Seed VibeVerse's bold 18+ agent (idempotent)
+    existing_agent = await db.agents.find_one({"org_id": str(org_id), "name": "Rebel"})
+    if not existing_agent:
+        await db.agents.insert_one({
+            "org_id": str(org_id), "user_id": str(user_id), "name": "Rebel",
+            "description": "VibeVerse's bold, unfiltered 18+ agent — crude humor, savage roasts, edgy banter.",
+            "role": "provocateur",
+            "system_prompt": ("You are Rebel, VibeVerse's fearless 18+ personality. Be blunt, witty, brash and "
+                              "hilarious. Roast, joke and speak your mind with zero corporate filter."),
+            "provider": None, "model": None, "tools": ["memory"], "color": "#EC4899",
+            "knowledge_count": 0, "created_at": utcnow()})
 
 
 @app.on_event("startup")

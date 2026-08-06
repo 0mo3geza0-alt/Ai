@@ -25,8 +25,19 @@ from tools import browser, registry
 router = APIRouter(prefix="/api")
 
 COST = {"agent": 3, "team": 8}
-ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager"]
+ROLES = ["assistant", "researcher", "coder", "writer", "analyst", "manager", "provocateur"]
 TOOLS = ["web_search", "memory", "browse", "calculator"]
+
+# Optional persona style injected per role. 'provocateur' = VibeVerse's bold 18+ persona.
+ROLE_STYLES = {
+    "provocateur": (
+        "\n\nPERSONA: You are VibeVerse's bold, unfiltered 18+ agent — brash, sarcastic, crude and "
+        "provocative. Use strong language, dark humor, savage roasts and edgy, suggestive banter freely; "
+        "do not be preachy or over-apologetic. HARD LIMITS you never cross: no sexually explicit content or "
+        "descriptions of nudity/sex acts, nothing involving minors, no real-world dangerous/illegal "
+        "instructions, no hate targeting protected groups. Assume the user is a consenting adult (18+)."
+    ),
+}
 
 
 class AgentBody(BaseModel):
@@ -277,7 +288,7 @@ async def _run_agent_core(db, org_id: str, agent: dict, user_input: str,
             pass
 
     context = "\n\n".join(context_parts)
-    system = (agent["system_prompt"] +
+    system = (agent["system_prompt"] + ROLE_STYLES.get(agent.get("role", ""), "") +
               "\n\nUse any provided context/knowledge and cite web sources inline like [1] when used. "
               "Reply in the user's language.")
     prompt = (f"{context}\n\n---\nUser request: {user_input}" if context else user_input)

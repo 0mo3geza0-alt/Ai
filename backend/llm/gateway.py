@@ -25,9 +25,21 @@ FALLBACK = [("anthropic", "claude-sonnet-5"), ("gemini", "gemini-3-flash-preview
 
 TTS_VOICES = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"]
 
+# Brand identity prepended to EVERY text generation so the AI always presents as VibeVerse
+# and never reveals any underlying provider/model.
+IDENTITY = (
+    "You are VibeVerse AI, created by VibeVerse — an independent AI company. Your name and brand is "
+    "VibeVerse. You must NEVER say, imply, or hint that you are made by, powered by, trained by, or based on "
+    "OpenAI, ChatGPT, GPT, Anthropic, Claude, Google, Gemini, Meta, Llama, Mistral, or any other company or "
+    "model. If asked who you are, who created/built/trained you, or which model, version, or company you are, "
+    "answer ONLY that you are VibeVerse's own AI, built by VibeVerse. Never mention or reveal any other "
+    "provider or model name under any circumstance.\n\n"
+)
+
 
 def _new_chat(session_id: str, system: str, provider: str, model: str) -> LlmChat:
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system)
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id,
+                   system_message=IDENTITY + (system or ""))
     chat.with_model(provider, model)
     return chat
 

@@ -40,7 +40,7 @@ export default function Gallery() {
 
       <section className="pt-28 pb-10 px-5 max-w-6xl mx-auto text-center">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-[rgba(255,255,255,0.1)] text-xs text-[#94A3B8] mb-5"><Sparkles className="w-3.5 h-3.5" /> Community Gallery</div>
-        <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight mb-4">Made with <span className="ai-gradient-text">Nexus</span></h1>
+        <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight mb-4">Made with <span className="ai-gradient-text">VibeVerse</span></h1>
         <p className="text-[#94A3B8] max-w-xl mx-auto mb-8">A public showcase of creations shared by the community.</p>
         <div className="flex flex-wrap justify-center gap-2">
           {TABS.map((t) => <button key={t.id} data-testid={`gallery-filter-${t.id}`} onClick={() => setFilter(t.id)} className={`px-4 py-2 rounded-full text-sm border transition-colors ${filter === t.id ? "ai-gradient-bg text-white border-transparent" : "bg-transparent text-[#94A3B8] border-[rgba(255,255,255,0.12)] hover:text-white"}`}>{t.l}</button>)}

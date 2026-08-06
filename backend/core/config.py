@@ -1,6 +1,6 @@
 import os
 
-APP_NAME = "Autonomous AI Agent Platform"
+APP_NAME = "VibeVerse"
 APP_VERSION = "0.1.0"
 PHASE = "Phases 1-14 — Full Platform"
 

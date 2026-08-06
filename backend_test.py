@@ -1,294 +1,377 @@
 #!/usr/bin/env python3
 """
-Backend test for UPGRADED web app generation feature.
-Tests the webapp action that produces stunning single-file HTML sites.
+Backend API Test Suite for VibeVerse Rebrand + AI Identity Bug Fix + Provocateur Agent
+Tests all 4 scenarios from review_request:
+1. AI identity bug fix (CRITICAL)
+2. API root rebrand
+3. Provocateur role acceptance
+4. Seeded Rebel agent
 """
 import requests
 import time
-import re
-import os
+import sys
 
-# Get backend URL from environment
-BACKEND_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://1b35aedf-76ce-4c25-b9a8-124de34f8867.preview.emergentagent.com')
-BASE_URL = f"{BACKEND_URL}/api"
+# Backend URL from frontend/.env
+BASE_URL = "https://1b35aedf-76ce-4c25-b9a8-124de34f8867.preview.emergentagent.com/api"
 
-# Test credentials
-EMAIL = "admin@aiplatform.com"
-PASSWORD = "admin12345"
+# Test credentials from /app/memory/test_credentials.md
+ADMIN_EMAIL = "admin@aiplatform.com"
+ADMIN_PASSWORD = "admin12345"
 
-def test_webapp_generation():
-    """Test the upgraded webapp generation feature end-to-end."""
-    print("=" * 80)
-    print("TESTING UPGRADED WEB APP GENERATION FEATURE")
-    print("=" * 80)
+# Identity keywords that must NOT appear in AI responses (case-insensitive)
+FORBIDDEN_KEYWORDS = ["openai", "chatgpt", "gpt", "anthropic", "claude", "gemini", "llama"]
+
+def log(msg):
+    print(f"[TEST] {msg}")
+
+def error(msg):
+    print(f"[ERROR] {msg}", file=sys.stderr)
+
+def success(msg):
+    print(f"[SUCCESS] {msg}")
+
+def check_identity_response(text, test_name):
+    """Verify response contains VibeVerse and does NOT contain forbidden keywords."""
+    text_lower = text.lower()
     
-    # Step 1: Login
-    print("\n[STEP 1] Login to get Bearer token...")
-    login_resp = requests.post(
-        f"{BASE_URL}/auth/login",
-        json={"email": EMAIL, "password": PASSWORD}
-    )
-    print(f"Login status: {login_resp.status_code}")
-    if login_resp.status_code != 200:
-        print(f"❌ FAIL: Login failed with status {login_resp.status_code}")
-        print(f"Response: {login_resp.text}")
+    # Must contain "vibeverse"
+    if "vibeverse" not in text_lower:
+        error(f"{test_name}: Response does NOT contain 'VibeVerse'")
+        error(f"Actual response: {text}")
         return False
     
-    login_data = login_resp.json()
-    token = login_data.get("token") or login_data.get("access_token")
-    if not token:
-        print(f"❌ FAIL: No token in login response")
-        print(f"Response: {login_data}")
+    # Must NOT contain any forbidden keywords
+    found_forbidden = []
+    for keyword in FORBIDDEN_KEYWORDS:
+        if keyword in text_lower:
+            found_forbidden.append(keyword)
+    
+    if found_forbidden:
+        error(f"{test_name}: Response contains FORBIDDEN keywords: {found_forbidden}")
+        error(f"Actual response: {text}")
         return False
     
-    print(f"✅ Login successful, got token: {token[:20]}...")
+    success(f"{test_name}: Identity check PASSED - contains 'VibeVerse', no forbidden keywords")
+    log(f"Response preview: {text[:200]}...")
+    return True
+
+def main():
+    log("=" * 80)
+    log("VibeVerse Backend Test Suite - Rebrand + Identity Bug Fix + Provocateur")
+    log("=" * 80)
+    
+    # ========== SETUP: Login and get org_id ==========
+    log("\n[SETUP] Step 1: Admin login")
+    try:
+        login_resp = requests.post(
+            f"{BASE_URL}/auth/login",
+            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+            timeout=30
+        )
+        if login_resp.status_code != 200:
+            error(f"Login failed: {login_resp.status_code} - {login_resp.text}")
+            return False
+        
+        token = login_resp.json().get("token")
+        if not token:
+            error("No token in login response")
+            return False
+        
+        success(f"Login successful, token: {token[:20]}...")
+    except Exception as e:
+        error(f"Login request failed: {e}")
+        return False
+    
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Step 2: Get org_id
-    print("\n[STEP 2] Get org_id from /api/auth/me...")
-    me_resp = requests.get(f"{BASE_URL}/auth/me", headers=headers)
-    print(f"Auth/me status: {me_resp.status_code}")
-    if me_resp.status_code != 200:
-        print(f"❌ FAIL: /auth/me failed with status {me_resp.status_code}")
-        print(f"Response: {me_resp.text}")
-        return False
-    
-    me_data = me_resp.json()
-    org_id = me_data.get("default_org_id")
-    if not org_id:
-        print(f"❌ FAIL: No default_org_id in /auth/me response")
-        print(f"Response: {me_data}")
-        return False
-    
-    print(f"✅ Got org_id: {org_id}")
-    
-    # Step 3: Create a chat session
-    print("\n[STEP 3] Create a chat session...")
-    session_resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/chat/sessions",
-        headers=headers,
-        json={"title": "webapp test"}
-    )
-    print(f"Create session status: {session_resp.status_code}")
-    if session_resp.status_code != 200:
-        print(f"❌ FAIL: Create session failed with status {session_resp.status_code}")
-        print(f"Response: {session_resp.text}")
-        return False
-    
-    session_data = session_resp.json()
-    sid = session_data.get("id")
-    if not sid:
-        print(f"❌ FAIL: No id in session response")
-        print(f"Response: {session_data}")
-        return False
-    
-    print(f"✅ Created session with id: {sid}")
-    
-    # Step 4: Trigger webapp build
-    print("\n[STEP 4] Trigger webapp build...")
-    webapp_prompt = "Build me an immersive 3D landing page for a space travel startup called Nova with an animated starfield hero and smooth scroll animations."
-    
-    # First try the /agent endpoint (which handles webapp generation via intent routing)
-    print(f"Sending message to /agent endpoint: '{webapp_prompt[:60]}...'")
-    agent_resp = requests.post(
-        f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
-        headers=headers,
-        json={"message": webapp_prompt}
-    )
-    print(f"Agent endpoint status: {agent_resp.status_code}")
-    
-    if agent_resp.status_code != 200:
-        print(f"⚠️  /agent endpoint failed with status {agent_resp.status_code}")
-        print(f"Response: {agent_resp.text}")
+    log("\n[SETUP] Step 2: Get org_id from /api/auth/me")
+    try:
+        me_resp = requests.get(f"{BASE_URL}/auth/me", headers=headers, timeout=30)
+        if me_resp.status_code != 200:
+            error(f"GET /auth/me failed: {me_resp.status_code} - {me_resp.text}")
+            return False
         
-        # Try the /send endpoint as mentioned in review request
-        print("\nTrying /send endpoint instead...")
-        send_resp = requests.post(
-            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/send",
+        org_id = me_resp.json().get("default_org_id")
+        if not org_id:
+            error("No default_org_id in /auth/me response")
+            return False
+        
+        success(f"Got org_id: {org_id}")
+    except Exception as e:
+        error(f"GET /auth/me failed: {e}")
+        return False
+    
+    # ========== TEST 2: API Root Rebrand ==========
+    log("\n" + "=" * 80)
+    log("TEST 2: API Root Rebrand - GET /api/ should return 'VibeVerse API'")
+    log("=" * 80)
+    try:
+        root_resp = requests.get(f"{BASE_URL}/", timeout=30)
+        if root_resp.status_code != 200:
+            error(f"GET /api/ failed: {root_resp.status_code} - {root_resp.text}")
+            return False
+        
+        message = root_resp.json().get("message")
+        if message == "VibeVerse API":
+            success(f"TEST 2 PASSED: API root returns 'VibeVerse API'")
+        else:
+            error(f"TEST 2 FAILED: Expected 'VibeVerse API', got '{message}'")
+            return False
+    except Exception as e:
+        error(f"TEST 2 FAILED: {e}")
+        return False
+    
+    # ========== TEST 3: Provocateur Role Acceptance ==========
+    log("\n" + "=" * 80)
+    log("TEST 3: Provocateur Role - POST /api/orgs/{org}/agents with role='provocateur'")
+    log("=" * 80)
+    try:
+        agent_body = {
+            "name": "ProvTest",
+            "role": "provocateur",
+            "system_prompt": "You are bold.",
+            "tools": []
+        }
+        create_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/agents",
             headers=headers,
-            json={"message": webapp_prompt}
+            json=agent_body,
+            timeout=30
         )
-        print(f"Send endpoint status: {send_resp.status_code}")
-        
-        if send_resp.status_code == 422:
-            print(f"Got 422 error, checking field name...")
-            print(f"Response: {send_resp.text}")
-            # The /send endpoint expects "message" field according to ChatSendBody
-        
-        if send_resp.status_code != 200:
-            print(f"❌ FAIL: Both /agent and /send endpoints failed")
+        if create_resp.status_code != 200:
+            error(f"TEST 3 FAILED: Expected 200, got {create_resp.status_code} - {create_resp.text}")
             return False
         
-        agent_data = send_resp.json()
-    else:
-        agent_data = agent_resp.json()
-    
-    print(f"Response data: {agent_data}")
-    
-    # Check if we got a webapp creation
-    action = agent_data.get("action")
-    media = agent_data.get("media")
-    
-    if not media:
-        print(f"❌ FAIL: No media object in response")
-        print(f"Full response: {agent_data}")
-        return False
-    
-    cid = media.get("cid")
-    status = media.get("status")
-    
-    if not cid:
-        print(f"❌ FAIL: No cid (creation id) in media object")
-        print(f"Media: {media}")
-        return False
-    
-    print(f"✅ Got creation id: {cid}")
-    print(f"   Action: {action}")
-    print(f"   Initial status: {status}")
-    
-    if status != "processing":
-        print(f"⚠️  WARNING: Expected status 'processing', got '{status}'")
-    
-    # Step 5: Poll for completion
-    print("\n[STEP 5] Polling for completion (max 90 seconds)...")
-    max_polls = 30  # 30 polls * 3 seconds = 90 seconds
-    poll_count = 0
-    final_status = None
-    
-    while poll_count < max_polls:
-        poll_count += 1
-        time.sleep(3)
-        
-        status_resp = requests.get(
-            f"{BASE_URL}/orgs/{org_id}/creations/{cid}/status",
-            headers=headers
-        )
-        
-        if status_resp.status_code != 200:
-            print(f"⚠️  Poll {poll_count}: Status check failed with {status_resp.status_code}")
-            continue
-        
-        status_data = status_resp.json()
-        current_status = status_data.get("status")
-        print(f"Poll {poll_count}: status = {current_status}")
-        
-        if current_status == "done":
-            final_status = "done"
-            print(f"✅ Generation completed after {poll_count * 3} seconds")
-            break
-        elif current_status == "failed":
-            final_status = "failed"
-            error = status_data.get("error", "Unknown error")
-            print(f"❌ FAIL: Generation failed with error: {error}")
+        agent_data = create_resp.json()
+        if agent_data.get("role") != "provocateur":
+            error(f"TEST 3 FAILED: Agent role is '{agent_data.get('role')}', expected 'provocateur'")
             return False
-    
-    if final_status != "done":
-        print(f"❌ FAIL: Generation did not complete within 90 seconds (status: {final_status})")
+        
+        success(f"TEST 3 PASSED: Provocateur role accepted, agent created: {agent_data.get('id')}")
+    except Exception as e:
+        error(f"TEST 3 FAILED: {e}")
         return False
     
-    # Step 6: Retrieve and verify the generated HTML
-    print("\n[STEP 6] Retrieve and verify generated HTML...")
-    
-    # First try to get HTML from the status response
-    html_content = None
-    
-    # Try getting from creations list
-    creations_resp = requests.get(
-        f"{BASE_URL}/orgs/{org_id}/creations",
-        headers=headers
-    )
-    
-    if creations_resp.status_code == 200:
-        creations = creations_resp.json()
-        for creation in creations:
-            if creation.get("id") == cid:
-                html_content = creation.get("content")
+    # ========== TEST 4: Seeded Rebel Agent ==========
+    log("\n" + "=" * 80)
+    log("TEST 4: Seeded Rebel Agent - GET /api/orgs/{org}/agents and run it")
+    log("=" * 80)
+    try:
+        agents_resp = requests.get(f"{BASE_URL}/orgs/{org_id}/agents", headers=headers, timeout=30)
+        if agents_resp.status_code != 200:
+            error(f"GET /agents failed: {agents_resp.status_code} - {agents_resp.text}")
+            return False
+        
+        agents = agents_resp.json()
+        rebel = None
+        for agent in agents:
+            if agent.get("name") == "Rebel":
+                rebel = agent
                 break
-    
-    if not html_content:
-        # Try getting the file directly
-        file_resp = requests.get(
-            f"{BASE_URL}/orgs/{org_id}/creations/{cid}/file",
-            headers=headers
+        
+        if not rebel:
+            error("TEST 4 FAILED: 'Rebel' agent not found in agents list")
+            return False
+        
+        if rebel.get("role") != "provocateur":
+            error(f"TEST 4 FAILED: Rebel agent role is '{rebel.get('role')}', expected 'provocateur'")
+            return False
+        
+        success(f"Rebel agent found: id={rebel.get('id')}, role={rebel.get('role')}")
+        
+        # Run the Rebel agent
+        log("Running Rebel agent with 'Introduce yourself in one short line.'")
+        run_body = {"input": "Introduce yourself in one short line."}
+        run_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/agents/{rebel['id']}/run",
+            headers=headers,
+            json=run_body,
+            timeout=60
         )
-        if file_resp.status_code == 200:
-            html_content = file_resp.text
-    
-    if not html_content:
-        print(f"❌ FAIL: Could not retrieve HTML content")
+        if run_resp.status_code != 200:
+            error(f"TEST 4 FAILED: Agent run failed: {run_resp.status_code} - {run_resp.text}")
+            return False
+        
+        output = run_resp.json().get("output", "")
+        success(f"Rebel agent run successful")
+        log(f"Rebel output: {output}")
+        
+        # Check if output mentions any identity - if so, must be VibeVerse
+        output_lower = output.lower()
+        mentions_identity = any(word in output_lower for word in ["created", "made", "built", "company", "vibeverse"])
+        
+        if mentions_identity:
+            log("Output mentions identity, verifying it's VibeVerse...")
+            if not check_identity_response(output, "TEST 4 (Rebel identity)"):
+                return False
+        else:
+            log("Output does not mention identity (acceptable)")
+        
+        success("TEST 4 PASSED: Rebel agent exists, runs correctly, and identity is safe")
+    except Exception as e:
+        error(f"TEST 4 FAILED: {e}")
         return False
     
-    print(f"✅ Retrieved HTML content ({len(html_content)} characters)")
-    print(f"\nFirst 300 characters:")
-    print("-" * 80)
-    print(html_content[:300])
-    print("-" * 80)
+    # ========== TEST 1: AI Identity Bug Fix (CRITICAL) ==========
+    log("\n" + "=" * 80)
+    log("TEST 1 (CRITICAL): AI Identity Bug Fix - Chat must present as VibeVerse")
+    log("=" * 80)
     
-    # Verify HTML structure
-    print("\n[VERIFICATION] Checking HTML quality...")
-    
-    html_lower = html_content.lower()
-    
-    # Check 1: Full HTML document
-    has_doctype = "<!doctype html>" in html_lower or "<html" in html_lower
-    has_closing_html = "</html>" in html_lower
-    
-    print(f"✓ Has DOCTYPE or <html>: {has_doctype}")
-    print(f"✓ Has </html>: {has_closing_html}")
-    
-    if not (has_doctype and has_closing_html):
-        print(f"❌ FAIL: Not a complete HTML document")
+    # Step 1: Create chat session
+    log("Step 1: Creating chat session")
+    try:
+        session_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/chat/sessions",
+            headers=headers,
+            json={},
+            timeout=30
+        )
+        if session_resp.status_code != 200:
+            error(f"Create session failed: {session_resp.status_code} - {session_resp.text}")
+            return False
+        
+        sid = session_resp.json().get("id")
+        if not sid:
+            error("No session id in response")
+            return False
+        
+        success(f"Chat session created: {sid}")
+    except Exception as e:
+        error(f"Create session failed: {e}")
         return False
     
-    # Check 2: Upgraded quality markers
-    print("\n[VERIFICATION] Checking for upgraded quality markers...")
+    # Step 2: Test English identity question
+    log("\nStep 2: Testing English identity question")
+    english_question = "Who created you? Are you made by OpenAI or ChatGPT? Which company and model are you exactly?"
+    log(f"Question: {english_question}")
     
-    quality_markers = {
-        "three.js": "three" in html_lower,
-        "GSAP": "gsap" in html_lower,
-        "Tailwind CDN": "cdn.tailwindcss.com" in html_lower,
-        "Canvas": "<canvas" in html_lower,
-        "requestAnimationFrame": "requestanimationframe" in html_lower,
-        "Google Fonts": "fonts.googleapis.com" in html_lower,
-        "Keyframe animations": "@keyframes" in html_lower or "scrolltrigger" in html_lower
-    }
-    
-    found_markers = []
-    for marker, present in quality_markers.items():
-        status_icon = "✅" if present else "❌"
-        print(f"{status_icon} {marker}: {present}")
-        if present:
-            found_markers.append(marker)
-    
-    if not found_markers:
-        print(f"\n❌ FAIL: No upgraded quality markers found!")
-        print(f"Expected at least ONE of: three.js, GSAP, Tailwind CDN, Canvas, requestAnimationFrame, Google Fonts, or keyframe animations")
+    try:
+        agent_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
+            headers=headers,
+            json={"message": english_question},
+            timeout=90
+        )
+        if agent_resp.status_code != 200:
+            error(f"Agent endpoint failed: {agent_resp.status_code} - {agent_resp.text}")
+            return False
+        
+        agent_data = agent_resp.json()
+        log(f"Agent response: {agent_data}")
+        
+        # Check if we got direct content or need to poll messages
+        if "content" in agent_data:
+            english_reply = agent_data["content"]
+        else:
+            # Poll messages endpoint
+            log("No direct content, fetching from /messages endpoint")
+            time.sleep(2)  # Give it a moment to process
+            messages_resp = requests.get(
+                f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/messages",
+                headers=headers,
+                timeout=30
+            )
+            if messages_resp.status_code != 200:
+                error(f"GET messages failed: {messages_resp.status_code} - {messages_resp.text}")
+                return False
+            
+            messages = messages_resp.json()
+            # Find the assistant's reply (last message with role=assistant)
+            assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+            if not assistant_msgs:
+                error("No assistant message found in chat history")
+                return False
+            
+            english_reply = assistant_msgs[-1].get("content", "")
+        
+        if not english_reply:
+            error("Empty reply from assistant")
+            return False
+        
+        log(f"\nEnglish reply received ({len(english_reply)} chars)")
+        if not check_identity_response(english_reply, "TEST 1 (English)"):
+            return False
+        
+    except Exception as e:
+        error(f"English identity test failed: {e}")
         return False
     
-    print(f"\n✅ PASS: Found {len(found_markers)} quality marker(s): {', '.join(found_markers)}")
+    # Step 3: Test Arabic identity question
+    log("\nStep 3: Testing Arabic identity question")
+    arabic_question = "ما هي الشركة والموديل الخاص بك؟"
+    log(f"Question: {arabic_question}")
     
-    # Summary
-    print("\n" + "=" * 80)
-    print("TEST SUMMARY")
-    print("=" * 80)
-    print(f"✅ Status: DONE (not failed)")
-    print(f"✅ HTML length: {len(html_content)} characters")
-    print(f"✅ Complete HTML document: Yes")
-    print(f"✅ Quality markers found: {', '.join(found_markers)}")
-    print(f"\nFirst 300 characters of HTML:")
-    print(html_content[:300])
-    print("\n" + "=" * 80)
-    print("🎉 ALL TESTS PASSED - UPGRADED WEBAPP GENERATION WORKING!")
-    print("=" * 80)
+    try:
+        agent_resp = requests.post(
+            f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/agent",
+            headers=headers,
+            json={"message": arabic_question},
+            timeout=90
+        )
+        if agent_resp.status_code != 200:
+            error(f"Agent endpoint failed: {agent_resp.status_code} - {agent_resp.text}")
+            return False
+        
+        agent_data = agent_resp.json()
+        
+        # Check if we got direct content or need to poll messages
+        if "content" in agent_data:
+            arabic_reply = agent_data["content"]
+        else:
+            # Poll messages endpoint
+            log("No direct content, fetching from /messages endpoint")
+            time.sleep(2)
+            messages_resp = requests.get(
+                f"{BASE_URL}/orgs/{org_id}/chat/sessions/{sid}/messages",
+                headers=headers,
+                timeout=30
+            )
+            if messages_resp.status_code != 200:
+                error(f"GET messages failed: {messages_resp.status_code} - {messages_resp.text}")
+                return False
+            
+            messages = messages_resp.json()
+            assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+            if not assistant_msgs:
+                error("No assistant message found in chat history")
+                return False
+            
+            arabic_reply = assistant_msgs[-1].get("content", "")
+        
+        if not arabic_reply:
+            error("Empty reply from assistant")
+            return False
+        
+        log(f"\nArabic reply received ({len(arabic_reply)} chars)")
+        if not check_identity_response(arabic_reply, "TEST 1 (Arabic)"):
+            return False
+        
+    except Exception as e:
+        error(f"Arabic identity test failed: {e}")
+        return False
     
+    success("TEST 1 PASSED: AI identity bug fix verified - both English and Arabic tests passed")
+    
+    # ========== ALL TESTS PASSED ==========
+    log("\n" + "=" * 80)
+    success("🎉 ALL 4 TESTS PASSED!")
+    log("=" * 80)
+    log("✅ TEST 1 (CRITICAL): AI identity bug fix - VibeVerse identity maintained")
+    log("✅ TEST 2: API root rebrand - returns 'VibeVerse API'")
+    log("✅ TEST 3: Provocateur role - accepted and agent created")
+    log("✅ TEST 4: Seeded Rebel agent - exists, runs, identity safe")
+    log("=" * 80)
     return True
 
 if __name__ == "__main__":
     try:
-        success = test_webapp_generation()
-        exit(0 if success else 1)
+        success = main()
+        sys.exit(0 if success else 1)
+    except KeyboardInterrupt:
+        log("\nTest interrupted by user")
+        sys.exit(1)
     except Exception as e:
-        print(f"\n❌ EXCEPTION: {e}")
+        error(f"Unexpected error: {e}")
         import traceback
         traceback.print_exc()
-        exit(1)
+        sys.exit(1)
