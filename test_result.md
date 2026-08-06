@@ -167,3 +167,27 @@ agent_communication:
 agent_communication:
     -agent: "main"
     -message: "Fixed: added allow_origin_regex for *.emergentagent.com and *.emergent.sh so CORS works from mobile app.emergent.sh and any preview host. Full flow (login -> /auth/me -> dashboard) verified by frontend testing agent = PASS. If user still sees error on mobile, it is a stale page loaded before the fix; reload the preview."
+
+
+## FEATURE: Agent Conversational (Episodic) Memory — added by main agent
+backend:
+  - task: "Agent episodic/conversational memory (remember context across runs)"
+    implemented: true
+    working: true
+    file: "backend/agents/router.py, backend/memory/router.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Added _store_conversation_memory: after each single agent run (when 'memory' tool enabled), the interaction (user input + agent output) is embedded and stored as a memory (source='conversation', tagged, scoped by agent_id + session_id). _run_agent_core now also RETRIEVES these via search_memories (limit=6, agent_id) so the agent recalls past context on future runs. Fixed _store_knowledge to only delete source='agent-knowledge' memories (so updating knowledge no longer wipes conversation memories). run_agent now passes user_id."
+        -working: true
+        -agent: "testing"
+        -comment: "Comprehensive test completed via backend_test.py. All 7 test steps PASSED: (1) Admin login successful. (2) Retrieved org_id from /api/auth/me. (3) Created agent 'Memo' with tools=['memory']. (4) First run stored context: 'my name is Ahmed and my favorite color is blue' with session_id='s1'. (5) Second run with session_id='s2' successfully recalled context - output correctly mentioned 'Ahmed' and 'blue', memory tool was used. (6) Verified GET /api/orgs/{org_id}/memories returned 2 conversation memories with source='conversation'. (7) Regression test PASSED: updated agent with knowledge=['Ahmed works at ACME Corp.'], conversation memories preserved (still 2), and new agent-knowledge memory created (total 3 memories). Core feature working perfectly: agent remembers context across different sessions via episodic/conversational memory."
+
+agent_communication:
+    -agent: "main"
+    -message: "Please test the new agent conversational memory. Steps: 1) Login admin (admin@aiplatform.com / admin12345). 2) Get org id from /api/auth/me (default_org_id) or /api/orgs. 3) Create an agent via POST /api/orgs/{org_id}/agents with tools including 'memory' (body: name, system_prompt, role='assistant', tools=['memory']). 4) Run it: POST /api/orgs/{org_id}/agents/{aid}/run with input like 'Remember: my name is Ahmed and my favorite color is blue.' and a session_id. 5) Run again with input 'What is my name and my favorite color?' (same or new session_id). Verify the second response recalls 'Ahmed' and 'blue' (context remembered). 6) Verify GET /api/orgs/{org_id}/memories now contains entries with source='conversation'. Report whether the agent successfully remembered the context."
+    -agent: "testing"
+    -message: "✅ ALL TESTS PASSED - Agent Conversational (Episodic) Memory feature is fully functional. Created comprehensive backend_test.py covering all 7 test steps. Key results: (1) Login working. (2) Org retrieval working. (3) Agent creation with memory tool working. (4) First run stored context successfully. (5) CRITICAL TEST PASSED: Second run with different session_id correctly recalled 'Ahmed' and 'blue' from previous conversation, memory tool was used. (6) Database verification confirmed 2 conversation memories with source='conversation'. (7) Regression test confirmed updating agent knowledge does NOT delete conversation memories - both memory types coexist properly. The agent successfully remembers context across different sessions via semantic episodic memory. No issues found."

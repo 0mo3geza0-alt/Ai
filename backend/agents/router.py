@@ -63,8 +63,9 @@ def _public(a: dict) -> dict:
 
 
 async def _store_knowledge(db, org_id: str, agent_id: str, user_id: str, items: list[str]):
-    """Replace an agent's knowledge memories with the provided items."""
-    await db.memories.delete_many({"org_id": org_id, "agent_id": agent_id})
+    """Replace an agent's uploaded knowledge memories (keeps conversation memories)."""
+    await db.memories.delete_many(
+        {"org_id": org_id, "agent_id": agent_id, "source": "agent-knowledge"})
     clean = [t.strip() for t in items if t and t.strip()]
     if not clean:
         return 0
@@ -75,6 +76,21 @@ async def _store_knowledge(db, org_id: str, agent_id: str, user_id: str, items: 
     if docs:
         await db.memories.insert_many(docs)
     return len(docs)
+
+
+async def _store_conversation_memory(db, org_id: str, agent_id: str, user_id: str,
+                                     user_input: str, output: str, session_id: str | None):
+    """Persist a single interaction as an episodic memory so the agent recalls
+    past context on future runs (semantic conversational memory)."""
+    text = f"User asked: {user_input.strip()}\nAgent answered: {output.strip()[:1500]}"
+    try:
+        vec = await emb.embed_one(text)
+    except Exception:
+        return
+    await db.memories.insert_one({
+        "org_id": org_id, "user_id": user_id, "agent_id": agent_id, "text": text,
+        "tags": ["conversation"], "source": "conversation", "shared": False,
+        "session_id": session_id, "embedding": vec, "created_at": utcnow()})
 
 
 # --------------------------------------------------------------- CRUD
@@ -212,17 +228,18 @@ async def delete_agent(org_id: str, aid: str, ctx: dict = Depends(require_permis
 
 
 # --------------------------------------------------------------- run (single agent)
-async def _run_agent_core(db, org_id: str, agent: dict, user_input: str, session_id: str | None):
+async def _run_agent_core(db, org_id: str, agent: dict, user_input: str,
+                          session_id: str | None, user_id: str | None = None):
     tools = agent.get("tools", [])
     aid = str(agent["_id"])
     context_parts, sources, used = [], [], []
 
     if "memory" in tools:
         try:
-            mems = await search_memories(db, org_id, user_input, limit=5, agent_id=aid)
+            mems = await search_memories(db, org_id, user_input, limit=6, agent_id=aid)
             if mems:
                 used.append("memory")
-                context_parts.append("Relevant knowledge:\n" + "\n".join(
+                context_parts.append("Relevant knowledge & past context:\n" + "\n".join(
                     f"- {m['text']}" for m in mems))
         except Exception:
             pass
@@ -245,6 +262,11 @@ async def _run_agent_core(db, org_id: str, agent: dict, user_input: str, session
     output = await gateway.generate_text(
         session_id=session_id or uuid.uuid4().hex, system=system, prompt=prompt,
         provider=agent.get("provider"), model=agent.get("model"))
+    if "memory" in tools and user_id:
+        try:
+            await _store_conversation_memory(db, org_id, aid, user_id, user_input, output, session_id)
+        except Exception:
+            pass
     return {"output": output, "tools_used": used, "sources": sources}
 
 
@@ -256,7 +278,7 @@ async def run_agent(org_id: str, aid: str, body: RunBody, ctx: dict = Depends(re
         raise HTTPException(status_code=404, detail="Agent not found")
     remaining = await spend(db, org_id, COST["agent"])
     try:
-        result = await _run_agent_core(db, org_id, agent, body.input, body.session_id)
+        result = await _run_agent_core(db, org_id, agent, body.input, body.session_id, ctx["user"]["id"])
     except Exception as e:
         await refund(db, org_id, COST["agent"])
         raise HTTPException(status_code=502, detail=f"Agent error: {e}")
