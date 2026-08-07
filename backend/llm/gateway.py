@@ -446,6 +446,86 @@ async def stream_text(session_id: str, system: str, prompt: str,
         yield piece
 
 
+# ------------------------------------------------- agentic step-by-step builder
+BUILD_PLAN_SYSTEM = (
+    "You are a senior product engineer planning how to build a polished single-file web app/site. "
+    "Given the user's request, respond with STRICT JSON only (no prose, no code fences) shaped exactly as:\n"
+    '{"analysis":"1-2 sentence summary of what the user wants, in the USER\'S language",'
+    '"steps":[{"title":"short imperative step title in the user\'s language",'
+    '"detail":"one concise sentence describing what you will do in this step, in the user\'s language"}]}\n'
+    "Provide 5 to 6 steps covering: understanding requirements, information architecture / sections, "
+    "visual design system, building the layout & content, adding interactivity/responsiveness, and a final polish/QA pass. "
+    "Keep titles under 6 words."
+)
+
+_DEFAULT_STEPS = [
+    {"title": "تحليل المتطلبات", "detail": "فهم هدف المشروع والجمهور والميزات المطلوبة."},
+    {"title": "تخطيط الأقسام", "detail": "تحديد أقسام الصفحة والمحتوى والترتيب."},
+    {"title": "نظام التصميم", "detail": "اختيار الألوان والخطوط والمكوّنات."},
+    {"title": "بناء الواجهة", "detail": "كتابة HTML/CSS/JS للتصميم والمحتوى."},
+    {"title": "التفاعل والاستجابة", "detail": "إضافة التفاعلات ودعم كل الشاشات."},
+    {"title": "المراجعة النهائية", "detail": "فحص الجودة وتلميع التفاصيل."},
+]
+
+
+async def _plan_build(prompt: str):
+    try:
+        raw = await generate_text(session_id=f"plan-{uuid.uuid4().hex}",
+                                  system=BUILD_PLAN_SYSTEM, prompt=prompt)
+        data = _json.loads(_strip_json(raw))
+        steps = data.get("steps") or []
+        steps = [s for s in steps if isinstance(s, dict) and s.get("title")][:6]
+        return (data.get("analysis") or "").strip(), (steps or _DEFAULT_STEPS)
+    except Exception as e:  # noqa: BLE001
+        logger.error("build plan failed: %s", e)
+        return "", _DEFAULT_STEPS
+
+
+def _strip_json(text: str) -> str:
+    t = (text or "").strip()
+    if "```" in t:
+        for part in t.split("```"):
+            p = part.strip()
+            if p.startswith("json"):
+                p = p[4:].strip()
+            if p.startswith("{") and p.endswith("}"):
+                return p
+    a, b = t.find("{"), t.rfind("}")
+    return t[a:b + 1] if a != -1 and b != -1 else t
+
+
+async def stream_build_events(session_id: str, prompt: str, build_system: str, edit_html: str = None):
+    """Yield live 'step' events (Manus-style) while planning + building a web app,
+    then a final {'type':'artifact_html','html':...} event with the built document."""
+    # 1) plan
+    yield {"type": "step", "id": "plan", "title": "التخطيط", "state": "running",
+           "detail": "أفكّر في أفضل طريقة لبناء ما طلبته…"}
+    analysis, steps = await _plan_build(prompt)
+    yield {"type": "step", "id": "plan", "state": "done",
+           "detail": analysis or "تم وضع خطة التنفيذ."}
+
+    # 2) walk the planned steps with their real details
+    for i, s in enumerate(steps):
+        sid_ = f"s{i}"
+        yield {"type": "step", "id": sid_, "title": s.get("title", f"خطوة {i + 1}"),
+               "state": "running", "detail": s.get("detail", "")}
+        await asyncio.sleep(0.5)
+        yield {"type": "step", "id": sid_, "state": "done"}
+
+    # 3) build the actual artifact
+    yield {"type": "step", "id": "build", "title": "بناء التطبيق",
+           "state": "running", "detail": "أكتب الكود النهائي وأجمّع الصفحة…"}
+    if edit_html:
+        gen_prompt = (f"Here is the current app's full HTML:\n```html\n{edit_html}\n```\n\n"
+                      f"Apply this change: {prompt}\nReturn the COMPLETE updated HTML document.")
+    else:
+        gen_prompt = prompt
+    raw = await generate_text(session_id=session_id, system=build_system, prompt=gen_prompt)
+    html = strip_fences(raw)
+    yield {"type": "step", "id": "build", "state": "done", "detail": "اكتمل البناء."}
+    yield {"type": "artifact_html", "html": html}
+
+
 # ---------------------------------------------------------------- intent routing (unified chat)
 import json as _json
 

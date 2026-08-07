@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb, Zap, Lock } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb, Zap, Lock, CheckCircle2, Circle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
@@ -19,6 +19,32 @@ const SUGGESTIONS = [
 ];
 
 const EXT = { image: "png", voice: "mp3", audio: "mp3" };
+
+// Live agent step timeline (Manus / Emergent style) shown while a big task runs.
+function AgentSteps({ steps }) {
+  return (
+    <div data-testid="agent-steps" className="mb-2 rounded-xl border border-[#A855F7]/20 bg-[#0C0C14]/60 p-3 space-y-2.5">
+      <div className="flex items-center gap-2 text-[11px] font-medium text-[#A855F7] uppercase tracking-wide">
+        <Sparkles className="w-3.5 h-3.5" /> خطوات الوكيل الذكي
+      </div>
+      {steps.map((s) => (
+        <div key={s.id} data-testid={`agent-step-${s.id}`} className="flex items-start gap-2.5">
+          <div className="mt-0.5 shrink-0">
+            {s.state === "done"
+              ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              : s.state === "running"
+                ? <Loader2 className="w-4 h-4 text-[#A855F7] animate-spin" />
+                : <Circle className="w-4 h-4 text-[#475569]" />}
+          </div>
+          <div className="min-w-0">
+            <div className={`text-[13px] font-medium ${s.state === "done" ? "text-[#94A3B8]" : "text-white"}`}>{s.title}</div>
+            {s.detail && <div className="text-[11px] text-[#64748B] leading-snug mt-0.5">{s.detail}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const VOICE_OPTS = ["nova", "alloy", "ash", "coral", "echo", "fable", "onyx", "sage", "shimmer"];
 
@@ -311,12 +337,21 @@ export default function Chat() {
           const ev = JSON.parse(chunk.slice(6));
           if (ev.type === "status") patchLast((l) => ({ ...l, content: ev.content, _nexus: true }));
           else if (ev.type === "heartbeat") { /* keep-alive: nothing to render */ }
+          else if (ev.type === "start") { if (ev.action === "webapp") patchLast((l) => ({ ...l, steps: [], _agent: true, content: "" })); }
+          else if (ev.type === "step") patchLast((l) => {
+            const steps = [...(l.steps || [])];
+            const i = steps.findIndex((s) => s.id === ev.id);
+            const next = { id: ev.id, title: ev.title, detail: ev.detail, state: ev.state };
+            if (i === -1) steps.push(next);
+            else steps[i] = { ...steps[i], ...(ev.title ? { title: ev.title } : {}), ...(ev.detail ? { detail: ev.detail } : {}), state: ev.state || steps[i].state };
+            return { ...l, steps, _agent: true };
+          });
           else if (ev.type === "answer_start") patchLast((l) => ({ ...l, content: "", _nexus: nexusMode, kind: nexusMode ? "nexus" : "text" }));
           else if (ev.type === "delta") patchLast((l) => ({ ...l, content: (l.content || "") + ev.content }));
           else if (ev.type === "error") { patchLast((l) => ({ ...l, _streaming: false, content: ev.detail || "Something went wrong." })); toast.error(ev.detail || "Something went wrong."); }
           else if (ev.type === "done") {
             const mm = ev.message;
-            patchLast(() => ({ role: "assistant", content: mm.content, kind: mm.kind, media: mm.media }));
+            patchLast((l) => ({ role: "assistant", content: mm.content, kind: mm.kind, media: mm.media, steps: l.steps }));
             if (mm.kind === "webapp" && mm.media?.status === "processing") pollJob({ media: mm.media });
           }
         }
@@ -619,7 +654,8 @@ export default function Chat() {
                     {m.role === "user" && m.media?.url && (m.media.type === "image"
                       ? <div className="mb-2"><BlobMedia url={m.media.url} fallbackH="h-24" render={(src) => <img data-testid="user-attachment-image" src={src} alt="" className="rounded-lg max-h-48 w-auto" />} /></div>
                       : <div className="mb-2 flex items-center gap-2 text-xs bg-black/20 rounded-lg px-2.5 py-1.5"><FileText className="w-3.5 h-3.5" /> {m.media.name || "file"}</div>)}
-                    {m._streaming && !m.content ? <Dots /> : (m.kind === "code" || m.kind === "webapp" ? (m.content && <p className="whitespace-pre-wrap">{m.content}</p>) : (
+                    {m.role === "assistant" && m.steps && m.steps.length > 0 && <AgentSteps steps={m.steps} />}
+                    {m._streaming && !m.content && !(m.steps && m.steps.length) ? <Dots /> : (m.kind === "code" || m.kind === "webapp" ? (m.content && <p className="whitespace-pre-wrap">{m.content}</p>) : (
                       <div className="prose-chat"><ReactMarkdown>{m.content || ""}</ReactMarkdown></div>
                     ))}
                     {m.role === "assistant" && <MediaBlock m={m} pollJob={pollJob} />}
