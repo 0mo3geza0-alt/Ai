@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import AdminProviders from "@/pages/AdminProviders";
 
 const err = (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Something went wrong");
 
@@ -86,6 +87,7 @@ export default function Admin() {
           <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-white/10">Users</TabsTrigger>
           <TabsTrigger value="orgs" data-testid="admin-tab-orgs" className="data-[state=active]:bg-white/10">Organizations</TabsTrigger>
           <TabsTrigger value="activity" data-testid="admin-tab-activity" className="data-[state=active]:bg-white/10">Activity</TabsTrigger>
+          <TabsTrigger value="providers" data-testid="admin-tab-providers" className="data-[state=active]:bg-white/10">AI Providers</TabsTrigger>
         </TabsList>
 
         {/* OVERVIEW */}
@@ -203,6 +205,11 @@ export default function Admin() {
               </div>
             ))}
           </div>
+        </TabsContent>
+
+        {/* AI PROVIDERS */}
+        <TabsContent value="providers">
+          <AdminProviders />
         </TabsContent>
       </Tabs>
     </div>

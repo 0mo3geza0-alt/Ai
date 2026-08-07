@@ -24,6 +24,7 @@ from security.router import router as security_router
 from billing.router import router as billing_router
 from tools.router import router as tools_router
 from planning.router import router as planning_router
+from llm.providers_api import router as providers_router
 from security.middleware import SecurityMiddleware
 from memory import embeddings as _embeddings
 from workspace.storage import init_storage
@@ -61,6 +62,7 @@ app.include_router(security_router)
 app.include_router(billing_router)
 app.include_router(tools_router)
 app.include_router(planning_router)
+app.include_router(providers_router)
 
 app.add_middleware(SecurityMiddleware)
 
@@ -157,6 +159,11 @@ async def _seed_admin():
 async def on_startup():
     await _ensure_indexes()
     await _seed_admin()
+    try:
+        from llm import providers as _providers
+        await _providers.seed_defaults()
+    except Exception as e:
+        logger.error("AI provider seed failed: %s", e)
     try:
         init_storage()
     except Exception as e:
