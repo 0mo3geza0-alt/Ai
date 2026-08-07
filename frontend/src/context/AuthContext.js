@@ -59,8 +59,12 @@ export function AuthProvider({ children }) {
       { name, email, password },
       { headers: { "X-Device-Fingerprint": getDeviceFingerprint() } }
     );
-    // New flow: registration never returns a token. It requires email verification.
-    return data; // { requires_verification: true, email, message }
+    // If verification is disabled, the API returns a token -> log the user in instantly.
+    if (data?.token) {
+      setAuthToken(data.token);
+      setUser(data.user);
+    }
+    return data; // either { user, token } or { requires_verification, email, message }
   };
   const verifyEmail = async (email, code) => {
     const { data } = await api.post("/auth/verify-email", { email, code });

@@ -185,3 +185,20 @@ Implemented user-requested items 2,3,4,5,6,7,9,11,12:
 
 ### ملف مفاتيح البيئة
 - `/app/ENV_KEYS.md` يوثّق كل المفاتيح (مستثنى من GitHub) للّصق في أي حساب/دردشة Emergent جديد.
+
+
+---
+
+## تحديثات هذه الجلسة (استخراج المشروع + لوجو + تسجيل فوري)
+### 0) إحياء المشروع بعد استيراد GitHub
+- أُعيد بناء `backend/.env` و`frontend/.env` (كانت مستثناة من Git). ثُبّتت مكتبات backend + `emergentintegrations` + frontend (yarn). الخدمات شغّالة.
+- الرابط الأساسي للتطبيق (canonical): `https://inspiring-wozniak-12.preview.emergentagent.com` (المنصة تضبط REACT_APP_BACKEND_URL عليه تلقائياً).
+- قاعدة البيانات: **MongoDB Atlas** (cluster0.qjcfxyt، DB=vibeverse) — دائمة. الأدمن: admin@aiplatform.com / admin12345.
+
+### 1) تعطيل التحقق بالإيميل (تسجيل فوري) ✅
+- إضافة مفتاح `EMAIL_VERIFICATION_ENABLED` (افتراضي false). عند التعطيل: `POST /api/auth/register` يُنشئ مستخدماً **مفعّلاً** + org شخصية + يُصدر توكنات فوراً (نفس شكل استجابة login). عند التفعيل يعود لسلوك الكود بالإيميل.
+- `auth/router.py register` أصبح يستقبل `Response` ويضبط الكوكيز. `AuthContext.register` يخزّن التوكن ويدخل المستخدم مباشرة عند وجود token. تم التحقق E2E (status 200 → /app).
+
+### 2) لوجو المنصة ✅
+- تفريغ خلفية اللوجو المرفوع (rembg / isnet-general-use + alpha matting) وحفظه في `frontend/src/assets/logo.png` و`frontend/public/logo.png` (favicon).
+- `components/shared.js Logo` يعرض الصورة الشفافة. تم تحديث favicon في `public/index.html`.

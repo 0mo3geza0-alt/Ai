@@ -55,6 +55,8 @@ def _set_cookies(response: Response, tokens: dict):
 
 CODE_TTL_MIN = int(os.environ.get("VERIFICATION_CODE_TTL_MIN", "15"))
 RESEND_COOLDOWN_SEC = int(os.environ.get("RESEND_COOLDOWN_SEC", "60"))
+# When disabled, users are registered + logged in instantly (no email code needed).
+EMAIL_VERIFICATION_ENABLED = os.environ.get("EMAIL_VERIFICATION_ENABLED", "false").lower() == "true"
 
 
 def _hash_code(code: str) -> str:
@@ -81,7 +83,7 @@ async def _generate_and_send_code(db, user: dict) -> None:
 
 # ----------------------------------------------------------------- auth
 @router.post("/auth/register")
-async def register(body: RegisterBody, request: Request):
+async def register(body: RegisterBody, request: Request, response: Response):
     db = get_db()
     email = body.email.lower()
 
@@ -94,6 +96,22 @@ async def register(body: RegisterBody, request: Request):
     if existing:
         if existing.get("email_verified"):
             raise HTTPException(status_code=400, detail="Email already registered")
+        if not EMAIL_VERIFICATION_ENABLED:
+            # verification disabled -> verify this pending account now and log in
+            await db.users.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"name": body.name, "password_hash": sec.hash_password(body.password),
+                          "email_verified": True},
+                 "$unset": {"verification": ""}},
+            )
+            existing = await db.users.find_one({"_id": existing["_id"]})
+            if not existing.get("default_org_id"):
+                await _create_personal_org(db, str(existing["_id"]), existing.get("name", email))
+            existing = await db.users.find_one({"_id": existing["_id"]})
+            tokens = await _issue_tokens(db, existing)
+            _set_cookies(response, tokens)
+            return {"user": serialize_user(existing), "token": tokens["access"],
+                    "refresh_token": tokens["refresh"]}
         # Unverified account already exists -> update details and resend a fresh code
         await db.users.update_one(
             {"_id": existing["_id"]},
@@ -104,10 +122,26 @@ async def register(body: RegisterBody, request: Request):
         return {"requires_verification": True, "email": email,
                 "message": "أرسلنا كود تفعيل جديد إلى بريدك."}
 
-    # 2) enforce per-IP / per-device account limits (verified accounts only)
+    # 2) enforce per-IP / per-device account limits
     ip = anti_fraud.get_client_ip(request)
     device = anti_fraud.get_device_fingerprint(request)
     await anti_fraud.check_account_limits(db, ip, device)
+
+    if not EMAIL_VERIFICATION_ENABLED:
+        # instant signup: create a VERIFIED user + personal org + tokens (no email code)
+        doc = {"email": email, "name": body.name,
+               "password_hash": sec.hash_password(body.password),
+               "global_role": "user", "auth_provider": "local",
+               "email_verified": True, "signup_ip": ip, "signup_device": device,
+               "created_at": utcnow()}
+        res = await db.users.insert_one(doc)
+        doc["_id"] = res.inserted_id
+        await _create_personal_org(db, str(res.inserted_id), body.name or email)
+        user = await db.users.find_one({"_id": res.inserted_id})
+        tokens = await _issue_tokens(db, user)
+        _set_cookies(response, tokens)
+        return {"user": serialize_user(user), "token": tokens["access"],
+                "refresh_token": tokens["refresh"]}
 
     # 3) create the UNVERIFIED user (no tokens, no org until verified)
     doc = {"email": email, "name": body.name,
