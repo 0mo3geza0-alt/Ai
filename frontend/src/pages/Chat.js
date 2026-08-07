@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb, Zap, Lock, CheckCircle2, Circle } from "lucide-react";
+import { Plus, Send, Trash2, MessageSquare, Sparkles, Download, Copy, Check, Maximize2, Image as ImageIcon, AudioLines, Code2, Globe, Paperclip, X, RefreshCw, FileText, Mic, Loader2, PhoneOff, Volume2, Lightbulb, Zap, Lock, CheckCircle2, Circle, XCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
@@ -32,9 +32,11 @@ function AgentSteps({ steps }) {
           <div className="mt-0.5 shrink-0">
             {s.state === "done"
               ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              : s.state === "running"
-                ? <Loader2 className="w-4 h-4 text-[#A855F7] animate-spin" />
-                : <Circle className="w-4 h-4 text-[#475569]" />}
+              : s.state === "failed"
+                ? <XCircle className="w-4 h-4 text-red-400" />
+                : s.state === "running"
+                  ? <Loader2 className="w-4 h-4 text-[#A855F7] animate-spin" />
+                  : <Circle className="w-4 h-4 text-[#475569]" />}
           </div>
           <div className="min-w-0">
             <div className={`text-[13px] font-medium ${s.state === "done" ? "text-[#94A3B8]" : "text-white"}`}>{s.title}</div>
@@ -348,7 +350,15 @@ export default function Chat() {
           });
           else if (ev.type === "answer_start") patchLast((l) => ({ ...l, content: "", _nexus: nexusMode, kind: nexusMode ? "nexus" : "text" }));
           else if (ev.type === "delta") patchLast((l) => ({ ...l, content: (l.content || "") + ev.content }));
-          else if (ev.type === "error") { patchLast((l) => ({ ...l, _streaming: false, content: ev.detail || "Something went wrong." })); toast.error(ev.detail || "Something went wrong."); }
+          else if (ev.type === "error") {
+            const msg = ev.detail || "Something went wrong.";
+            patchLast((l) => ({
+              ...l, _streaming: false,
+              content: msg,
+              steps: (l.steps || []).map((s) => (s.state === "running" ? { ...s, state: "failed" } : s)),
+            }));
+            toast.error(msg);
+          }
           else if (ev.type === "done") {
             const mm = ev.message;
             patchLast((l) => ({ role: "assistant", content: mm.content, kind: mm.kind, media: mm.media, steps: l.steps }));
@@ -356,6 +366,11 @@ export default function Chat() {
           }
         }
       }
+      // stream ended without a done/error event (e.g. connection dropped)
+      patchLast((l) => (l && l._streaming
+        ? { ...l, _streaming: false, content: l.content || "انقطع الاتصال قبل اكتمال الرد. حاول مرة أخرى.",
+            steps: (l.steps || []).map((s) => (s.state === "running" ? { ...s, state: "failed" } : s)) }
+        : l));
     } catch (e) {
       toast.error(e.message || "Something went wrong.");
       setMessages((m) => m.filter((x) => !x._streaming));
