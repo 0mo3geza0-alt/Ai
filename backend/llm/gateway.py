@@ -216,7 +216,16 @@ async def generate_text(session_id: str, system: str, prompt: str,
             return text
         except Exception as e:  # noqa: BLE001
             logger.error("provider-chain text failed, using Emergent: %s", e)
-    return await _emergent_generate_text(session_id, system, prompt, provider, model, history)
+    _t0 = time.time()
+    text = await _emergent_generate_text(session_id, system, prompt, provider, model, history)
+    try:
+        from llm import providers as _P
+        pt, _ = _P.est_tokens(system, full)
+        await _P.log_emergent(model or DEFAULT_TEXT[1], True, (time.time() - _t0) * 1000,
+                              pt, _P._count_tokens(text), rtype="text")
+    except Exception:
+        pass
+    return text
 
 
 # ==================================================================== NEXUS PRO
@@ -448,8 +457,18 @@ async def stream_text(session_id: str, system: str, prompt: str,
             need_fallback = True
         if not need_fallback:
             return
+    _t0 = time.time()
+    _acc = []
     async for piece in _emergent_stream_text(session_id, system, prompt, provider, model, history):
+        _acc.append(piece)
         yield piece
+    try:
+        from llm import providers as _P
+        pt, _ = _P.est_tokens(system, full)
+        await _P.log_emergent(model or DEFAULT_TEXT[1], True, (time.time() - _t0) * 1000,
+                              pt, _P._count_tokens("".join(_acc)), rtype="text")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- intent routing (unified chat)
@@ -581,10 +600,21 @@ async def stream_chat(session_id: str, system: str, prompt: str, history: str = 
     if file_path:
         contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
     msg = UserMessage(text=full, file_contents=contents) if contents else UserMessage(text=full)
+    _t0 = time.time()
+    _acc = []
     async with _LLM_SEM:
         async for event in chat.stream_message(msg):
             if isinstance(event, TextDelta) and event.content:
+                _acc.append(event.content)
                 yield event.content
+    try:
+        from llm import providers as _P
+        pt, _ = _P.est_tokens(system, full)
+        await _P.log_emergent(model, True, (time.time() - _t0) * 1000,
+                              pt, _P._count_tokens("".join(_acc)),
+                              rtype=("chat-multimodal" if multimodal else "chat"))
+    except Exception:
+        pass
 
 
 async def generate_image(prompt: str):

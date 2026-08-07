@@ -76,6 +76,26 @@ async def create(body: ProviderCreate, admin: dict = Depends(require_admin)):
     return out
 
 
+class EmergentSettings(BaseModel):
+    monthly_budget: float | None = None
+    price_in: float | None = None
+    price_out: float | None = None
+
+
+# NOTE: declared BEFORE the generic /{pid} routes so "emergent" is not treated as a pid.
+@router.get("/emergent")
+async def emergent_get(admin: dict = Depends(require_admin)):
+    return await P.emergent_summary()
+
+
+@router.put("/emergent")
+async def emergent_put(body: EmergentSettings, admin: dict = Depends(require_admin)):
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    await P.set_emergent_settings(data)
+    await _audit(admin, "provider_update", "Emergent (built-in)", "budget/pricing updated")
+    return await P.emergent_summary()
+
+
 @router.put("/{pid}")
 async def update(pid: str, body: ProviderUpdate, admin: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}

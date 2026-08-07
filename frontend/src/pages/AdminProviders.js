@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Zap, CheckCircle2, XCircle, Save, Loader2, Activity, DollarSign, Gauge,
-  ListChecks, KeyRound, RefreshCw, Plug, Timer, Coins,
+  ListChecks, KeyRound, RefreshCw, Plug, Timer, Coins, ShieldCheck, Info, ExternalLink,
 } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,28 @@ function StatusBadge({ status }) {
 
 const money = (n) => (n == null ? "—" : `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 })}`);
 
+function BudgetBar({ budget, spent, remaining }) {
+  if (!budget || budget <= 0) {
+    return <div className="text-xs text-[#64748B]">No budget cap · spent {money(spent)} this month</div>;
+  }
+  const pct = Math.min(100, Math.max(0, (spent / budget) * 100));
+  const low = remaining != null && remaining <= budget * 0.15;
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-[#94A3B8]">Remaining this month</span>
+        <span className={low ? "text-red-400 font-semibold" : "text-emerald-400 font-semibold"}>
+          {money(remaining)} / {money(budget)}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+        <div className={`h-full rounded-full ${low ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+      </div>
+      {low && <div className="text-[11px] text-red-400 mt-1">⚠ Budget almost used — swap or top up this key soon.</div>}
+    </div>
+  );
+}
+
 function StatCard({ icon: Icon, label, value, tint }) {
   return (
     <div className="rounded-xl bg-[#12121C] border border-[rgba(255,255,255,0.08)] p-4">
@@ -42,7 +64,7 @@ function StatCard({ icon: Icon, label, value, tint }) {
   );
 }
 
-function ProviderCard({ p, onSaved }) {
+function ProviderCard({ p, usage, onSaved }) {
   const [draft, setDraft] = useState({
     name: p.name, model: p.model, base_url: p.base_url,
     priority: p.priority, monthly_budget: p.monthly_budget,
@@ -150,6 +172,11 @@ function ProviderCard({ p, onSaved }) {
         </div>
       </div>
 
+      <div className="mt-4">
+        <BudgetBar budget={usage?.monthly_budget ?? p.monthly_budget}
+          spent={usage?.month_cost ?? 0} remaining={usage?.remaining_budget} />
+      </div>
+
       {testRes && (
         <div className={`mt-3 text-xs rounded-lg px-3 py-2 border ${testRes.connected ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-red-500/10 border-red-500/30 text-red-300"}`}>
           {testRes.connected
@@ -172,23 +199,118 @@ function ProviderCard({ p, onSaved }) {
   );
 }
 
+function EmergentCard({ data, onSaved }) {
+  const [budget, setBudget] = useState(data.monthly_budget || 0);
+  const [priceIn, setPriceIn] = useState(data.price_in || 0);
+  const [priceOut, setPriceOut] = useState(data.price_out || 0);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/admin/providers/emergent", { monthly_budget: budget, price_in: priceIn, price_out: priceOut });
+      toast.success("Emergent settings saved");
+      onSaved && onSaved();
+    } catch (e) { err(e); } finally { setSaving(false); }
+  };
+
+  return (
+    <div data-testid="emergent-card" className="rounded-2xl border border-[#A855F7]/30 bg-gradient-to-br from-[#1a1030] to-[#0C0C14] p-5 mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[#A855F7]/15 border border-[#A855F7]/30 flex items-center justify-center">
+            <ShieldCheck className="w-4 h-4 text-[#A855F7]" />
+          </div>
+          <div>
+            <div className="text-white font-semibold">Emergent (built-in key)</div>
+            <div className="text-xs text-[#94A3B8]">Always-on final fallback so the platform never goes down.</div>
+          </div>
+        </div>
+        <Badge variant="outline" className="rounded-full text-[11px] bg-white/10 text-[#94A3B8] border-white/15">Official balance via dashboard</Badge>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="rounded-lg bg-white/5 border border-white/10 p-3">
+          <div className="text-lg font-bold text-white">{data.today_requests}</div>
+          <div className="text-xs text-[#64748B]">Requests today</div>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/10 p-3">
+          <div className="text-lg font-bold text-white">{data.month_requests}</div>
+          <div className="text-xs text-[#64748B]">Requests this month</div>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/10 p-3">
+          <div className="text-lg font-bold text-white">{(data.month_tokens || 0).toLocaleString()}</div>
+          <div className="text-xs text-[#64748B]">Tokens this month</div>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/10 p-3">
+          <div className="text-lg font-bold text-white">{money(data.estimated_cost_month)}</div>
+          <div className="text-xs text-[#64748B]">Est. cost (month)</div>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <BudgetBar budget={data.monthly_budget} spent={data.estimated_cost_month} remaining={data.remaining_budget} />
+      </div>
+
+      <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-4 flex items-start gap-2">
+        <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+        <span>{data.note}</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <Label className="text-[#94A3B8] text-xs">Monthly credit budget (USD, 0 = off)</Label>
+          <Input type="number" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)}
+            data-testid="emergent-budget" className="bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white mt-1" />
+        </div>
+        <div>
+          <Label className="text-[#94A3B8] text-xs">Price / 1M input (USD)</Label>
+          <Input type="number" step="0.001" value={priceIn} onChange={(e) => setPriceIn(e.target.value)}
+            className="bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white mt-1" />
+        </div>
+        <div>
+          <Label className="text-[#94A3B8] text-xs">Price / 1M output (USD)</Label>
+          <Input type="number" step="0.001" value={priceOut} onChange={(e) => setPriceOut(e.target.value)}
+            className="bg-[#12121C] border-[rgba(255,255,255,0.1)] text-white mt-1" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 mt-4">
+        <Button onClick={save} disabled={saving} data-testid="emergent-save" className="rounded-full ai-gradient-bg text-white border-0">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
+        </Button>
+        <a href={data.dashboard_url} target="_blank" rel="noreferrer" data-testid="emergent-dashboard-link">
+          <Button variant="outline" className="rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10">
+            <ExternalLink className="w-4 h-4" /> Open Emergent Dashboard
+          </Button>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminProviders() {
   const [providers, setProviders] = useState([]);
   const [usage, setUsage] = useState(null);
+  const [emergent, setEmergent] = useState(null);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     try {
-      const [pr, us, lg] = await Promise.all([
+      const [pr, us, em, lg] = await Promise.all([
         api.get("/admin/providers"),
         api.get("/admin/providers/usage"),
+        api.get("/admin/providers/emergent"),
         api.get("/admin/providers/logs?limit=60"),
       ]);
-      setProviders(pr.data); setUsage(us.data); setLogs(lg.data);
+      setProviders(pr.data); setUsage(us.data); setEmergent(em.data); setLogs(lg.data);
     } catch (e) { err(e); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+
+  const usageById = {};
+  (usage?.providers || []).forEach((u) => { usageById[u.id] = u; });
 
   if (loading) return <div className="py-10 text-[#64748B] flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading providers…</div>;
 
@@ -216,8 +338,10 @@ export default function AdminProviders() {
         </div>
       )}
 
+      {emergent && <EmergentCard data={emergent} onSaved={load} />}
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {providers.map((p) => <ProviderCard key={p.id} p={p} onSaved={load} />)}
+        {providers.map((p) => <ProviderCard key={p.id} p={p} usage={usageById[p.id]} onSaved={load} />)}
       </div>
 
       <div className="mt-10">

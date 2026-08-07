@@ -83,6 +83,9 @@ PROVIDER_ORDER = list(REGISTRY.keys())
 
 COLL = "ai_providers"
 LOGS = "ai_provider_logs"
+SETTINGS = "ai_settings"
+EMERGENT_SLUG = "emergent"
+EMERGENT_DASHBOARD = "https://app.emergent.sh/"
 
 # rough token estimator for streamed responses (no exact usage from stream)
 try:
@@ -506,3 +509,107 @@ async def direct_key(slug: str) -> tuple[str, str] | None:
     if not k:
         return None
     return k, (d.get("base_url") or REGISTRY.get(slug, {}).get("base_url", ""))
+
+
+
+# ============================================================= Emergent built-in key
+# Emergent does NOT expose an official balance/credits API (confirmed), so we can
+# only surface our OWN local usage telemetry + a manual owner-set budget/threshold,
+# and link to the Emergent dashboard for the authoritative balance.
+
+async def log_emergent(model: str, success: bool, latency_ms: float,
+                       ptoks: int, ctoks: int, rtype: str = "chat", estimated: bool = True):
+    """Record a usage row for the built-in Emergent fallback key."""
+    try:
+        await get_db()[LOGS].insert_one({
+            "id": str(uuid.uuid4()),
+            "provider_id": EMERGENT_SLUG,
+            "provider_slug": EMERGENT_SLUG,
+            "provider_name": "Emergent (built-in)",
+            "model": model,
+            "success": bool(success),
+            "latency_ms": int(latency_ms),
+            "prompt_tokens": int(ptoks or 0),
+            "completion_tokens": int(ctoks or 0),
+            "total_tokens": int((ptoks or 0) + (ctoks or 0)),
+            "cost": 0.0,  # priced dynamically in emergent_summary from current settings
+            "estimated": bool(estimated),
+            "error": "",
+            "request_type": rtype,
+            "ts": utcnow(),
+        })
+    except Exception as e:  # pragma: no cover
+        logger.error("emergent log failed: %s", e)
+
+
+def est_tokens(*texts) -> tuple[int, int]:
+    """(prompt_tokens, 0) helper for the fallback path input estimate."""
+    return sum(_count_tokens(t) for t in texts if t), 0
+
+
+async def get_emergent_settings() -> dict:
+    doc = await get_db()[SETTINGS].find_one({"key": EMERGENT_SLUG})
+    doc = doc or {}
+    return {
+        "monthly_budget": float(doc.get("monthly_budget", 0) or 0),
+        "price_in": float(doc.get("price_in", 0) or 0),
+        "price_out": float(doc.get("price_out", 0) or 0),
+    }
+
+
+async def set_emergent_settings(data: dict) -> dict:
+    upd = {}
+    for f in ("monthly_budget", "price_in", "price_out"):
+        if data.get(f) is not None:
+            upd[f] = float(data[f] or 0)
+    if upd:
+        upd["updated_at"] = utcnow()
+        await get_db()[SETTINGS].update_one({"key": EMERGENT_SLUG}, {"$set": upd}, upsert=True)
+    return await get_emergent_settings()
+
+
+async def emergent_summary() -> dict:
+    db = get_db()
+    now = utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    settings = await get_emergent_settings()
+
+    async def agg(match):
+        cur = db[LOGS].aggregate([
+            {"$match": {**match, "provider_slug": EMERGENT_SLUG}},
+            {"$group": {"_id": None,
+                        "requests": {"$sum": 1},
+                        "ok": {"$sum": {"$cond": ["$success", 1, 0]}},
+                        "ptoks": {"$sum": "$prompt_tokens"},
+                        "ctoks": {"$sum": "$completion_tokens"},
+                        "tokens": {"$sum": "$total_tokens"},
+                        "latency": {"$avg": "$latency_ms"}}},
+        ])
+        async for r in cur:
+            return r
+        return {"requests": 0, "ok": 0, "ptoks": 0, "ctoks": 0, "tokens": 0, "latency": 0}
+
+    day = await agg({"ts": {"$gte": today}})
+    mon = await agg({"ts": {"$gte": month}})
+
+    def cost(a):
+        return round((a.get("ptoks", 0) / 1_000_000.0) * settings["price_in"]
+                     + (a.get("ctoks", 0) / 1_000_000.0) * settings["price_out"], 6)
+
+    month_cost = cost(mon)
+    budget = settings["monthly_budget"]
+    return {
+        "balance_supported": False,
+        "note": "Emergent does not expose an official balance API — this is your app's local usage estimate. Check the Emergent dashboard for the authoritative remaining credits.",
+        "dashboard_url": EMERGENT_DASHBOARD,
+        "today_requests": day.get("requests", 0) or 0,
+        "month_requests": mon.get("requests", 0) or 0,
+        "month_tokens": mon.get("tokens", 0) or 0,
+        "estimated_cost_month": month_cost,
+        "avg_response_ms": int(mon.get("latency", 0) or 0),
+        "monthly_budget": budget,
+        "remaining_budget": round(budget - month_cost, 4) if budget > 0 else None,
+        "price_in": settings["price_in"],
+        "price_out": settings["price_out"],
+    }
