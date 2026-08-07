@@ -693,43 +693,6 @@ async def chat_agent_stream(org_id: str, sid: str, body: AgentBody, ctx: dict = 
                     yield await sse({"type": "error", "detail": f"AI error: {e}"}); return
                 await _settle(db, org_id)
                 kind, content, media = "text", acc, None
-            elif action == "webapp":
-                try:
-                    await _spend(db, org_id, "code")
-                except HTTPException as he:
-                    yield await sse({"type": "error", "detail": he.detail}); return
-                edit_html = None
-                last = await db.creations.find_one(
-                    {"org_id": org_id, "kind": "webapp", "status": "done"}, sort=[("created_at", -1)])
-                if last and any(w in body.message.lower() for w in
-                                ("edit", "change", "update", "عدل", "غير", "أضف", "اضف", "modify")):
-                    edit_html = last.get("content")
-                html = ""
-                _wa_org = await _org(db, org_id)
-                _wa_prov, _wa_model = gateway.model_for(_plan_of(_wa_org))
-                try:
-                    async for ev in gateway.stream_build_events(sid, prompt, WEBAPP_SYSTEM, edit_html=edit_html,
-                                                                provider=_wa_prov, model=_wa_model):
-                        if ev.get("type") == "artifact_html":
-                            html = ev.get("html", "")
-                        else:
-                            yield await sse(ev)  # live step events
-                except Exception as e:
-                    await _refund(db, org_id, "code")
-                    yield await sse({"type": "error", "detail": f"Build error: {e}"}); return
-                path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.html"
-                try:
-                    await asyncio.to_thread(put_object, path, html.encode("utf-8"), "text/html")
-                except Exception as e:
-                    await _refund(db, org_id, "code")
-                    yield await sse({"type": "error", "detail": f"Storage error: {e}"}); return
-                await _settle(db, org_id)
-                cid = await _log_creation(db, org_id, user_id, "webapp", body.message[:60], prompt,
-                                          storage_path=path, content_type="text/html", content=html)
-                await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "done"}})
-                kind = "webapp"
-                content = reply or "تم بناء تطبيقك بنجاح!"
-                media = {"type": "webapp", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
             else:
                 try:
                     kind, content, media = await _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
