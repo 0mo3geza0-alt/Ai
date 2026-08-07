@@ -5,15 +5,17 @@ from core.logging import logger
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY") or "sk_test_emergent"
 
-# Subscription plans. Free is app-managed only (no Stripe price).
+# Subscription plans (monthly). Free is app-managed only (no Stripe price).
+# Each tier can have several price points that grant different monthly credit amounts.
 CATALOG = [
     {
         "emergent_product_id": "pro_plan",
         "name": "VibeVerse Pro",
         "tax_code": "txcd_10103001",  # SaaS
         "prices": [
-            {"lookup_key": "pro_monthly", "amount": 1900, "currency": "usd", "interval": "month"},
-            {"lookup_key": "pro_yearly", "amount": 18000, "currency": "usd", "interval": "year"},
+            {"lookup_key": "pro_19", "amount": 1900, "currency": "usd", "interval": "month"},
+            {"lookup_key": "pro_40", "amount": 4000, "currency": "usd", "interval": "month"},
+            {"lookup_key": "pro_60", "amount": 6000, "currency": "usd", "interval": "month"},
         ],
     },
     {
@@ -21,22 +23,35 @@ CATALOG = [
         "name": "VibeVerse Business",
         "tax_code": "txcd_10103001",
         "prices": [
-            {"lookup_key": "business_monthly", "amount": 4900, "currency": "usd", "interval": "month"},
-            {"lookup_key": "business_yearly", "amount": 47000, "currency": "usd", "interval": "year"},
+            {"lookup_key": "business_100", "amount": 10000, "currency": "usd", "interval": "month"},
+            {"lookup_key": "business_150", "amount": 15000, "currency": "usd", "interval": "month"},
+        ],
+    },
+    {
+        "emergent_product_id": "premium_plan",
+        "name": "VibeVerse Premium",
+        "tax_code": "txcd_10103001",
+        "prices": [
+            {"lookup_key": "premium_200", "amount": 20000, "currency": "usd", "interval": "month"},
+            {"lookup_key": "premium_300", "amount": 30000, "currency": "usd", "interval": "month"},
         ],
     },
 ]
 
-# lookup_key -> (plan name, credits granted)
+# lookup_key -> (plan name, monthly credits granted)
 PLAN_BY_LOOKUP = {
-    "pro_monthly": ("pro", 10000),
-    "pro_yearly": ("pro", 10000),
-    "business_monthly": ("business", 50000),
-    "business_yearly": ("business", 50000),
+    "pro_19": ("pro", 100),
+    "pro_40": ("pro", 200),
+    "pro_60": ("pro", 320),
+    "business_100": ("business", 650),
+    "business_150": ("business", 1000),
+    "premium_200": ("premium", 1500),
+    "premium_300": ("premium", 2250),
 }
 
-# Monthly credit allowance per plan (used by admin + auto monthly reset).
-PLAN_CREDITS = {"free": 200, "pro": 10000, "business": 50000}
+# Base monthly credit allowance per plan (used by admin + auto monthly reset when
+# an org has no explicit purchased allowance).
+PLAN_CREDITS = {"free": 50, "pro": 100, "business": 650, "premium": 1500}
 
 
 def ensure_tax_settings():

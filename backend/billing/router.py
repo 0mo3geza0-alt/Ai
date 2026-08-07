@@ -21,21 +21,61 @@ router = APIRouter(prefix="/api")
 # Public plan catalog for the pricing page (features are display-only).
 PLANS_PUBLIC = [
     {
-        "id": "free", "name": "Free", "monthly": 0, "yearly": 0,
-        "credits": 200, "highlight": False,
-        "features": ["200 credits / month", "AI Chat & Documents", "Image generation", "Community gallery"],
+        "id": "free", "name": "Free", "monthly": 0,
+        "credits": 50, "highlight": False,
+        "features": [
+            "50 credits / month",
+            "AI Chat & Documents (medium model)",
+            "Up to 10 images / month",
+            "Community gallery",
+        ],
+        "limits": ["No audio / music generation", "No VibeVerse Pro agent"],
     },
     {
-        "id": "pro", "name": "Pro", "monthly": 19, "yearly": 180,
-        "monthly_lookup": "pro_monthly", "yearly_lookup": "pro_yearly",
-        "credits": 10000, "highlight": True,
-        "features": ["10,000 credits / month", "Everything in Free", "AI Video & Music", "AI Agents & Knowledge base", "Priority generation"],
+        "id": "pro", "name": "Pro", "monthly": 19, "highlight": True,
+        "credits": 100,
+        "tiers": [
+            {"lookup": "pro_19", "price": 19, "credits": 100},
+            {"lookup": "pro_40", "price": 40, "credits": 200},
+            {"lookup": "pro_60", "price": 60, "credits": 320},
+        ],
+        "features": [
+            "From 100 credits / month",
+            "Everything in Free",
+            "Unlimited image generation",
+            "AI Audio & Music",
+            "Smart model routing",
+        ],
     },
     {
-        "id": "business", "name": "Business", "monthly": 49, "yearly": 470,
-        "monthly_lookup": "business_monthly", "yearly_lookup": "business_yearly",
-        "credits": 50000, "highlight": False,
-        "features": ["50,000 credits / month", "Everything in Pro", "Team agents & workflows", "Highest priority", "Dedicated support"],
+        "id": "business", "name": "Business", "monthly": 100, "highlight": False,
+        "credits": 650,
+        "tiers": [
+            {"lookup": "business_100", "price": 100, "credits": 650},
+            {"lookup": "business_150", "price": 150, "credits": 1000},
+        ],
+        "features": [
+            "From 650 credits / month",
+            "Everything in Pro",
+            "Team agents & workflows",
+            "Highest priority",
+            "Dedicated support",
+        ],
+    },
+    {
+        "id": "premium", "name": "Premium", "monthly": 200, "highlight": False,
+        "credits": 1500,
+        "tiers": [
+            {"lookup": "premium_200", "price": 200, "credits": 1500},
+            {"lookup": "premium_300", "price": 300, "credits": 2250},
+        ],
+        "features": [
+            "From 1,500 credits / month",
+            "Everything unlimited",
+            "VibeVerse Pro — smartest agent",
+            "Top-tier models",
+            "+650 credits per extra $100",
+        ],
     },
 ]
 
@@ -57,7 +97,8 @@ async def _apply_plan(db, org_id: str, lookup_key: str):
         return
     plan, credits = mapping
     await db.organizations.update_one(
-        {"_id": ObjectId(org_id)}, {"$set": {"plan": plan, "credits": credits}}
+        {"_id": ObjectId(org_id)},
+        {"$set": {"plan": plan, "credits": credits, "credit_allowance": credits}}
     )
 
 

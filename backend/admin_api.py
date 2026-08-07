@@ -162,7 +162,7 @@ async def update_org(org_id: str, body: OrgAdminBody, admin: dict = Depends(requ
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     updates = {}
-    if body.plan in ("free", "pro", "business"):
+    if body.plan in ("free", "pro", "business", "premium"):
         updates["plan"] = body.plan
     if body.credits is not None:
         updates["credits"] = max(0, body.credits)

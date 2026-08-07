@@ -28,7 +28,9 @@ async def apply_monthly_reset(force: bool = False) -> int:
     orgs = await db.organizations.find(query).to_list(10000)
     n = 0
     for o in orgs:
-        credits = PLAN_CREDITS.get(o.get("plan", "free"), PLAN_CREDITS["free"])
+        plan = o.get("plan", "free")
+        # honor a purchased tier's allowance if present, else the plan's base allowance
+        credits = o.get("credit_allowance") or PLAN_CREDITS.get(plan, PLAN_CREDITS["free"])
         await db.organizations.update_one(
             {"_id": o["_id"]}, {"$set": {"credits": credits, "last_reset_month": month}}
         )

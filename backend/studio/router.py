@@ -13,13 +13,14 @@ from pydantic import BaseModel
 from core.db import get_db
 from core.base_models import utcnow
 from core.logging import logger
+from core import metering
 from auth.deps import require_permission, get_current_user
 from workspace.storage import put_object, get_object, APP_NAME
 from llm import gateway
 
 router = APIRouter(prefix="/api")
 
-COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2, "nexus": 0.5}
+COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2, "nexus": 0.5}  # legacy reference only; charging is now dynamic (see core/metering.py)
 
 
 # ----------------------------------------------------------------- schemas
@@ -109,21 +110,74 @@ def _iso(v):
     return v.isoformat() if isinstance(v, datetime) else v
 
 
-async def _spend(db, org_id: str, kind: str):
-    """Race-safe: only debit when balance >= cost (atomic conditional update)."""
-    cost = COST[kind]
+async def _org(db, org_id: str) -> dict | None:
+    return await db.organizations.find_one({"_id": ObjectId(org_id)})
+
+
+def _plan_of(org: dict | None) -> str:
+    return (org or {}).get("plan", "free")
+
+
+async def _spend(db, org_id: str, kind: str = "chat"):
+    """Preflight guard for a metered (text-type) request: start a fresh metering
+    window and ensure the org still has credits. Actual credits are deducted AFTER
+    generation by _settle() based on the REAL token cost (see core/metering.py)."""
+    metering.reset()
+    org = await _org(db, org_id)
+    if not org or float(org.get("credits", 0) or 0) <= 0:
+        raise HTTPException(status_code=402, detail="Not enough credits. Upgrade the organization plan.")
+    return float(org.get("credits", 0) or 0)
+
+
+async def _settle(db, org_id: str):
+    """Deduct credits for the just-finished request: 3x real cost for paid orgs,
+    4x for free orgs (metering.credits_for). Admins are never charged."""
+    org = await _org(db, org_id)
+    plan = _plan_of(org)
+    cost = metering.credits_for(plan)
     updated = await db.organizations.find_one_and_update(
-        {"_id": ObjectId(org_id), "credits": {"$gte": cost}},
+        {"_id": ObjectId(org_id)},
         {"$inc": {"credits": -cost}},
         return_document=True,
     )
-    if not updated:
-        raise HTTPException(status_code=402, detail="Not enough credits. Upgrade the organization plan.")
-    return updated.get("credits", 0)
+    remaining = float((updated or {}).get("credits", 0) or 0)
+    if remaining < 0:  # never show a negative balance
+        await db.organizations.update_one({"_id": ObjectId(org_id)}, {"$set": {"credits": 0}})
+        remaining = 0.0
+    return round(remaining, 2)
 
 
-async def _refund(db, org_id: str, kind: str):
-    await db.organizations.update_one({"_id": ObjectId(org_id)}, {"$inc": {"credits": COST[kind]}})
+async def _refund(db, org_id: str, kind: str = "chat"):
+    """No-op: credits are only charged post-generation via _settle(), so a failed
+    request simply never settles (nothing to refund)."""
+    return
+
+
+# --- feature gates (images / audio) are plan-based, NOT credit-metered ---
+FREE_IMAGE_CAP = 10  # images per calendar month for free plan
+
+
+async def _gate_image(db, org_id: str):
+    """Free plan: capped at FREE_IMAGE_CAP images/month. Paid plans: unlimited."""
+    org = await _org(db, org_id)
+    if _plan_of(org) != "free":
+        return
+    month = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    used = await db.creations.count_documents(
+        {"org_id": org_id, "kind": "image", "created_at": {"$gte": month}})
+    if used >= FREE_IMAGE_CAP:
+        raise HTTPException(
+            status_code=402,
+            detail=f"وصلت الحد الأقصى للخطة المجانية ({FREE_IMAGE_CAP} صور شهريًا). قم بالترقية لصور بلا حدود.")
+
+
+async def _gate_audio(db, org_id: str):
+    """Audio / music generation is a paid-plan feature (blocked on free)."""
+    org = await _org(db, org_id)
+    if _plan_of(org) == "free":
+        raise HTTPException(
+            status_code=402,
+            detail="إنشاء المقاطع الصوتية متاح لمشتركي الباقات المدفوعة فقط. قم بالترقية لتفعيله.")
 
 
 async def _log_creation(db, org_id, user_id, kind, title, prompt, content="", storage_path=None, content_type=None, meta=None):
@@ -202,14 +256,18 @@ async def chat_send(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Depen
     remaining = await _spend(db, org_id, "chat")
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     context = "".join(f"{m['role']}: {m['content']}\n" for m in hist)
+    org = await _org(db, org_id)
+    prov_def, model_def = gateway.model_for(_plan_of(org))
     try:
         reply = await gateway.generate_text(
             session_id=sid,
             system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
-            prompt=f"user: {body.message}", provider=body.provider, model=body.model, history=context)
+            prompt=f"user: {body.message}", provider=body.provider or prov_def,
+            model=body.model or model_def, history=context)
     except Exception as e:
         await _refund(db, org_id, "chat")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    remaining = await _settle(db, org_id)
     ts = utcnow()
     await db.chat_messages.insert_many([
         {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message, "created_at": ts},
@@ -231,10 +289,11 @@ class NexusBody(BaseModel):
 
 
 async def _is_premium_or_admin(db, org_id: str, user: dict) -> bool:
+    """VibeVerse Pro (smartest agent) is exclusive to the Premium plan (or admins)."""
     if user.get("global_role") == "admin":
         return True
     org = await db.organizations.find_one({"_id": ObjectId(org_id)})
-    return bool(org and org.get("plan") == "pro")
+    return bool(org and org.get("plan") == "premium")
 
 
 @router.post("/orgs/{org_id}/chat/sessions/{sid}/nexus-pro")
@@ -259,6 +318,7 @@ async def nexus_pro_send(org_id: str, sid: str, body: NexusBody,
     except Exception as e:
         await _refund(db, org_id, "nexus")
         raise HTTPException(status_code=502, detail=f"VibeVerse Pro error: {e}")
+    remaining = await _settle(db, org_id)
     ts = utcnow()
     await db.chat_messages.insert_many([
         {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message,
@@ -329,11 +389,11 @@ async def nexus_pro_stream(org_id: str, sid: str, body: NexusBody,
         if session.get("title", "New chat") == "New chat":
             upd["title"] = body.message[:40]
         await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
-        org = await db.organizations.find_one({"_id": ObjectId(org_id)})
+        remaining = await _settle(db, org_id)
         yield await sse({"type": "done",
                          "message": {"id": str(res.inserted_id), "role": "assistant",
                                      "content": acc, "kind": "nexus", "media": None},
-                         "credits": org.get("credits", 0) if org else 0,
+                         "credits": remaining,
                          "title": upd.get("title", session.get("title"))})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
@@ -374,6 +434,7 @@ WEBAPP_SYSTEM = (
 async def _run_webapp_job(org_id: str, cid: str, prompt: str, edit_html: str | None = None):
     db = get_db()
     try:
+        metering.reset()
         if edit_html:
             gen_prompt = (f"Here is the current app's full HTML:\n```html\n{edit_html}\n```\n\n"
                           f"Apply this change: {prompt}\nReturn the COMPLETE updated HTML document.")
@@ -383,11 +444,11 @@ async def _run_webapp_job(org_id: str, cid: str, prompt: str, edit_html: str | N
         html = gateway.strip_fences(raw)
         path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.html"
         await asyncio.to_thread(put_object, path, html.encode("utf-8"), "text/html")
+        await _settle(db, org_id)
         await db.creations.update_one({"_id": ObjectId(cid)},
                                       {"$set": {"status": "done", "storage_path": path,
                                                 "content_type": "text/html", "content": html}})
     except Exception as e:
-        await _refund(db, org_id, "code")
         await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "failed", "error": str(e)[:200]}})
 
 
@@ -430,7 +491,7 @@ async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
             pass
 
     if action == "image":
-        await _spend(db, org_id, "image")
+        await _gate_image(db, org_id)
         try:
             if img_b64:
                 mime, data = await gateway.edit_image(prompt, img_b64)
@@ -440,19 +501,19 @@ async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
             path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.{ext}"
             put_object(path, data, mime)
         except Exception as e:
-            await _refund(db, org_id, "image"); raise HTTPException(status_code=502, detail=f"Image error: {e}")
+            raise HTTPException(status_code=502, detail=f"Image error: {e}")
         cid = await _log_creation(db, org_id, user_id, "image", prompt[:60], prompt, storage_path=path, content_type=mime)
         return "image", (reply or ("Here's your edited image:" if img_b64 else "Here's your image:")), \
                {"type": "image", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
 
     if action == "voice":
-        await _spend(db, org_id, "audio")
+        await _gate_audio(db, org_id)
         try:
             audio = await gateway.generate_audio(prompt, "nova")
             path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.mp3"
             put_object(path, audio, "audio/mpeg")
         except Exception as e:
-            await _refund(db, org_id, "audio"); raise HTTPException(status_code=502, detail=f"Voice error: {e}")
+            raise HTTPException(status_code=502, detail=f"Voice error: {e}")
         cid = await _log_creation(db, org_id, user_id, "audio", prompt[:60], prompt, storage_path=path, content_type="audio/mpeg")
         return "voice", (reply or "Here's your voiceover:"), \
                {"type": "voice", "url": _asset_url(org_id, cid), "cid": cid, "status": "done"}
@@ -464,6 +525,7 @@ async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
                 system="You are an expert writer. Write clear, well-structured long-form content in markdown.", prompt=prompt)
         except Exception as e:
             await _refund(db, org_id, "document"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        await _settle(db, org_id)
         cid = await _log_creation(db, org_id, user_id, "document", prompt[:60], prompt, content=doc)
         return "document", doc, {"type": "document", "cid": cid, "status": "done"}
 
@@ -476,6 +538,7 @@ async def _run_action(db, org_id, user_id, sid, action, prompt, lang, reply,
             code = await gateway.generate_text(session_id=uuid.uuid4().hex, system=system, prompt=prompt)
         except Exception as e:
             await _refund(db, org_id, "code"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        await _settle(db, org_id)
         cid = await _log_creation(db, org_id, user_id, "code", prompt[:60], prompt, content=code, meta={"language": language})
         return "code", code, {"type": "code", "language": language, "cid": cid, "status": "done"}
 
@@ -521,12 +584,15 @@ async def chat_agent(org_id: str, sid: str, body: AgentBody, ctx: dict = Depends
 
     if action == "chat":
         await _spend(db, org_id, "chat")
+        org = await _org(db, org_id)
+        prov_def, model_def = gateway.model_for(_plan_of(org))
         try:
             content = await gateway.generate_text(session_id=sid, system=CHAT_SYSTEM,
-                prompt=f"user: {body.message}", history=context) if not (img_b64 or file_path) else \
+                prompt=f"user: {body.message}", provider=prov_def, model=model_def, history=context) if not (img_b64 or file_path) else \
                 await gateway.describe_media(body.message, img_b64, file_path, file_mime)
         except Exception as e:
             await _refund(db, org_id, "chat"); raise HTTPException(status_code=502, detail=f"AI error: {e}")
+        await _settle(db, org_id)
         kind, media = "text", None
     else:
         kind, content, media = await _run_action(db, org_id, user_id, sid, action, prompt, lang, reply, img_b64, file_path, file_mime)
@@ -613,15 +679,19 @@ async def chat_agent_stream(org_id: str, sid: str, body: AgentBody, ctx: dict = 
                     await _spend(db, org_id, "chat")
                 except HTTPException as he:
                     yield await sse({"type": "error", "detail": he.detail}); return
+                _org_doc = await _org(db, org_id)
+                _prov, _model = gateway.model_for(_plan_of(_org_doc))
                 acc = ""
                 try:
                     async for delta in gateway.stream_chat(sid, CHAT_SYSTEM, f"user: {body.message}", context,
-                                                           image_b64=img_b64, file_path=file_path, file_mime=file_mime):
+                                                           image_b64=img_b64, file_path=file_path, file_mime=file_mime,
+                                                           provider=_prov, model=_model):
                         acc += delta
                         yield await sse({"type": "delta", "content": delta})
                 except Exception as e:
                     await _refund(db, org_id, "chat")
                     yield await sse({"type": "error", "detail": f"AI error: {e}"}); return
+                await _settle(db, org_id)
                 kind, content, media = "text", acc, None
             else:
                 try:
@@ -671,6 +741,7 @@ async def gen_document(org_id: str, body: DocBody, ctx: dict = Depends(require_p
     except Exception as e:
         await _refund(db, org_id, "document")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    remaining = await _settle(db, org_id)
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "document", body.prompt[:60], body.prompt,
                               content=content, meta={"mode": body.mode})
     return {"id": cid, "content": content, "credits": remaining}
@@ -689,6 +760,7 @@ async def gen_code(org_id: str, body: CodeBody, ctx: dict = Depends(require_perm
     except Exception as e:
         await _refund(db, org_id, "code")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    remaining = await _settle(db, org_id)
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "code", body.prompt[:60], body.prompt,
                               content=content, meta={"language": body.language})
     # optionally save into a project as an artifact
@@ -711,24 +783,22 @@ async def gen_image(org_id: str, body: ImageBody, ctx: dict = Depends(require_pe
         prompt = f"{body.prompt}, {IMAGE_MODIFIERS[body.modifier]}"
     results = []
     for _ in range(n):
-        remaining = await _spend(db, org_id, "image")
+        await _gate_image(db, org_id)
         try:
             mime, data = await gateway.generate_image(prompt)
         except Exception as e:
-            await _refund(db, org_id, "image")
             raise HTTPException(status_code=502, detail=f"AI error: {e}")
         ext = "png" if "png" in mime else "jpg"
         path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.{ext}"
         try:
             put_object(path, data, mime)
         except Exception as e:
-            await _refund(db, org_id, "image")
             raise HTTPException(status_code=502, detail=f"Storage error: {e}")
         cid = await _log_creation(db, org_id, ctx["user"]["id"], "image", body.prompt[:60], body.prompt,
                                   storage_path=path, content_type=mime, meta={"modifier": body.modifier})
         results.append({"id": cid, "url": f"/api/orgs/{org_id}/creations/{cid}/file"})
     org = await db.organizations.find_one({"_id": ObjectId(org_id)})
-    return {"images": results, "credits": org.get("credits", 0)}
+    return {"images": results, "credits": round(float(org.get("credits", 0) or 0), 2)}
 
 
 # ----------------------------------------------------------------- media background job
@@ -748,11 +818,12 @@ async def _run_media_job(org_id: str, cid: str, kind: str, fn, ext: str):
 @router.post("/orgs/{org_id}/generate/music")
 async def gen_music(org_id: str, body: MusicBody, ctx: dict = Depends(require_permission("file:write"))):
     db = get_db()
-    remaining = await _spend(db, org_id, "music")
+    await _gate_audio(db, org_id)
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "music", body.prompt[:60], body.prompt, meta={"status": "processing"})
     await db.creations.update_one({"_id": ObjectId(cid)}, {"$set": {"status": "processing"}})
     asyncio.create_task(_run_media_job(org_id, cid, "music", lambda: gateway.generate_music(body.prompt, body.seconds), "wav"))
-    return {"id": cid, "status": "processing", "credits": remaining}
+    org = await _org(db, org_id)
+    return {"id": cid, "status": "processing", "credits": round(float((org or {}).get("credits", 0) or 0), 2)}
 
 
 @router.get("/orgs/{org_id}/creations/{cid}/status")
@@ -784,6 +855,7 @@ async def gen_research(org_id: str, body: ResearchBody, ctx: dict = Depends(requ
     except Exception as e:
         await _refund(db, org_id, "research")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    remaining = await _settle(db, org_id)
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "research", body.query[:60], body.query,
                               content=content, meta={"sources": sources})
     return {"id": cid, "content": content, "sources": sources, "credits": remaining}
@@ -793,21 +865,21 @@ async def gen_research(org_id: str, body: ResearchBody, ctx: dict = Depends(requ
 @router.post("/orgs/{org_id}/generate/audio")
 async def gen_audio(org_id: str, body: AudioBody, ctx: dict = Depends(require_permission("file:write"))):
     db = get_db()
-    remaining = await _spend(db, org_id, "audio")
+    await _gate_audio(db, org_id)
     try:
         data = await gateway.generate_audio(body.text, voice=body.voice, model=body.model)
     except Exception as e:
-        await _refund(db, org_id, "audio")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
     path = f"{APP_NAME}/{org_id}/creations/{uuid.uuid4().hex}.mp3"
     try:
         put_object(path, data, "audio/mpeg")
     except Exception as e:
-        await _refund(db, org_id, "audio")
         raise HTTPException(status_code=502, detail=f"Storage error: {e}")
     cid = await _log_creation(db, org_id, ctx["user"]["id"], "audio", body.text[:60], body.text,
                               storage_path=path, content_type="audio/mpeg", meta={"voice": body.voice})
-    return {"id": cid, "url": f"/api/orgs/{org_id}/creations/{cid}/file", "credits": remaining}
+    org = await _org(db, org_id)
+    return {"id": cid, "url": f"/api/orgs/{org_id}/creations/{cid}/file",
+            "credits": round(float((org or {}).get("credits", 0) or 0), 2)}
 
 
 # ----------------------------------------------------------------- live voice conversation (inside chat)
@@ -879,6 +951,7 @@ async def voice_chat(org_id: str, sid: str, body: VoiceChatBody, ctx: dict = Dep
     except Exception as e:
         await _refund(db, org_id, "chat")
         raise HTTPException(status_code=502, detail=f"AI error: {e}")
+    remaining = await _settle(db, org_id)
     reply = (reply or "").strip() or "Sorry, I didn't catch that."
     # Auto-detect the emotional mood the model chose and speak it with matching pace for realism.
     mood, reply = gateway.extract_mood(reply)
@@ -958,6 +1031,8 @@ async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Dep
     remaining = await _spend(db, org_id, "chat")
     hist = await db.chat_messages.find({"session_id": sid}).sort("created_at", 1).to_list(1000)
     context = "".join(f"{m['role']}: {m['content']}\n" for m in hist)
+    org = await _org(db, org_id)
+    prov_def, model_def = gateway.model_for(_plan_of(org))
 
     async def event_stream():
         reply = ""
@@ -965,13 +1040,15 @@ async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Dep
             async for delta in gateway.stream_text(
                 session_id=sid,
                 system="You are a helpful, knowledgeable AI assistant. Reply in the user's language. Use markdown for code and lists.",
-                prompt=f"user: {body.message}", provider=body.provider, model=body.model, history=context):
+                prompt=f"user: {body.message}", provider=body.provider or prov_def,
+                model=body.model or model_def, history=context):
                 reply += delta
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
         except Exception as e:
             await _refund(db, org_id, "chat")
             yield f"data: {json.dumps({'error': str(e)[:200]})}\n\n"
             return
+        credits_left = await _settle(db, org_id)
         ts = utcnow()
         await db.chat_messages.insert_many([
             {"session_id": sid, "org_id": org_id, "role": "user", "content": body.message, "created_at": ts},
@@ -981,7 +1058,7 @@ async def chat_stream(org_id: str, sid: str, body: ChatSendBody, ctx: dict = Dep
         if session.get("title", "New chat") == "New chat":
             upd["title"] = body.message[:40]
         await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": upd})
-        yield f"data: {json.dumps({'done': True, 'credits': remaining, 'title': upd.get('title', session.get('title'))})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'credits': credits_left, 'title': upd.get('title', session.get('title'))})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})

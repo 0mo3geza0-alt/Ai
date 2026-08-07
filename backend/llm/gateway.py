@@ -9,6 +9,7 @@ from urllib.parse import quote
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, ImageContent, FileContentWithMimeType
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 from core.logging import logger
+from core import metering
 
 from llm import providers as _providers
 
@@ -31,6 +32,19 @@ DEFAULT_TEXT = ("openai", "gpt-5.6-terra")
 IMAGE_MODEL = ("gemini", "gemini-3.1-flash-image-preview")
 # fallback chain if the primary provider errors
 FALLBACK = [("anthropic", "claude-sonnet-5"), ("gemini", "gemini-3-flash-preview")]
+
+# Best model per plan tier ("smart usage"): free gets a fast mid model, paid gets
+# stronger models, premium gets the top model. Used to route normal chat.
+PLAN_MODEL = {
+    "free":     ("gemini", "gemini-3-flash-preview"),
+    "pro":      ("openai", "gpt-5.4"),
+    "business": ("openai", "gpt-5.4"),
+    "premium":  ("openai", "gpt-5.6-terra"),
+}
+
+
+def model_for(plan: str | None):
+    return PLAN_MODEL.get((plan or "free").lower(), PLAN_MODEL["free"])
 
 TTS_VOICES = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"]
 # Highest-quality OpenAI TTS model for the most natural, professional-sounding speech.
@@ -201,7 +215,9 @@ async def _emergent_generate_text(session_id: str, system: str, prompt: str,
     for prov, mod in chain:
         try:
             chat = _new_chat(session_id, system, prov, mod)
-            return await _send(chat, UserMessage(text=full))
+            out = await _send(chat, UserMessage(text=full))
+            metering.record_text(mod, (system or "") + full, out)
+            return out
         except Exception as e:
             last_err = e
             logger.error("LLM %s/%s failed, trying fallback: %s", prov, mod, e)
@@ -221,9 +237,7 @@ async def generate_text(session_id: str, system: str, prompt: str,
 # ethical cybersecurity education. Operates within strict safety & legal limits.
 
 COUNCIL = [
-    ("anthropic", "claude-sonnet-5"),
     ("openai", "gpt-5.6-terra"),
-    ("gemini", "gemini-3.1-pro-preview"),
 ]
 
 NEXUS_PRO_SYSTEM = (
@@ -267,7 +281,9 @@ _SYNTH_SYSTEM = (
 async def _council_member(session_id: str, system: str, text: str, prov: str, mod: str):
     try:
         chat = _new_chat(f"{session_id}-{prov}", system, prov, mod)
-        return await _send(chat, UserMessage(text=text))
+        out = await _send(chat, UserMessage(text=text))
+        metering.record_text(mod, (system or "") + text, out or "")
+        return out
     except Exception as e:
         logger.error("Nexus council %s/%s failed: %s", prov, mod, e)
         return None
@@ -414,10 +430,13 @@ async def _emergent_stream_text(session_id: str, system: str, prompt: str,
     model = model or DEFAULT_TEXT[1]
     full = (history + "\n" + prompt) if history else prompt
     chat = _new_chat(session_id, system, provider, model)
+    _acc = []
     async with _LLM_SEM:
         async for event in chat.stream_message(UserMessage(text=full)):
             if isinstance(event, TextDelta) and event.content:
+                _acc.append(event.content)
                 yield event.content
+    metering.record_text(model, (system or "") + full, "".join(_acc))
 
 
 async def stream_text(session_id: str, system: str, prompt: str,
@@ -525,12 +544,17 @@ async def describe_media(prompt: str, image_b64: str = None, file_path: str = No
 
 
 async def stream_chat(session_id: str, system: str, prompt: str, history: str = "",
-                      image_b64: str = None, file_path: str = None, file_mime: str = None):
+                      image_b64: str = None, file_path: str = None, file_mime: str = None,
+                      provider: str = None, model: str = None):
     """Stream a chat reply token-by-token via the Emergent Universal Key,
     optionally grounded on an attached image/file (Gemini vision)."""
     multimodal = bool(image_b64 or file_path)
     full = (history + "\n" + prompt) if history else prompt
-    provider, model = ("gemini", "gemini-3-flash-preview") if multimodal else DEFAULT_TEXT
+    if multimodal:
+        provider, model = "gemini", "gemini-3-flash-preview"
+    else:
+        provider = provider or DEFAULT_TEXT[0]
+        model = model or DEFAULT_TEXT[1]
     chat = _new_chat(session_id, system, provider, model)
     contents = []
     if image_b64:
@@ -538,10 +562,13 @@ async def stream_chat(session_id: str, system: str, prompt: str, history: str = 
     if file_path:
         contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
     msg = UserMessage(text=full, file_contents=contents) if contents else UserMessage(text=full)
+    _acc = []
     async with _LLM_SEM:
         async for event in chat.stream_message(msg):
             if isinstance(event, TextDelta) and event.content:
+                _acc.append(event.content)
                 yield event.content
+    metering.record_text(model, (system or "") + full, "".join(_acc))
 
 
 async def generate_image(prompt: str):
