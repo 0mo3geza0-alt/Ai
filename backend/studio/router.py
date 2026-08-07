@@ -705,8 +705,11 @@ async def chat_agent_stream(org_id: str, sid: str, body: AgentBody, ctx: dict = 
                                 ("edit", "change", "update", "عدل", "غير", "أضف", "اضف", "modify")):
                     edit_html = last.get("content")
                 html = ""
+                _wa_org = await _org(db, org_id)
+                _wa_prov, _wa_model = gateway.model_for(_plan_of(_wa_org))
                 try:
-                    async for ev in gateway.stream_build_events(sid, prompt, WEBAPP_SYSTEM, edit_html=edit_html):
+                    async for ev in gateway.stream_build_events(sid, prompt, WEBAPP_SYSTEM, edit_html=edit_html,
+                                                                provider=_wa_prov, model=_wa_model):
                         if ev.get("type") == "artifact_html":
                             html = ev.get("html", "")
                         else:

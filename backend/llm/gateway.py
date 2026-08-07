@@ -494,7 +494,8 @@ def _strip_json(text: str) -> str:
     return t[a:b + 1] if a != -1 and b != -1 else t
 
 
-async def stream_build_events(session_id: str, prompt: str, build_system: str, edit_html: str = None):
+async def stream_build_events(session_id: str, prompt: str, build_system: str, edit_html: str = None,
+                              provider: str = None, model: str = None):
     """Yield live 'step' events (Manus-style) while planning + building a web app,
     then a final {'type':'artifact_html','html':...} event with the built document."""
     # 1) plan
@@ -520,7 +521,8 @@ async def stream_build_events(session_id: str, prompt: str, build_system: str, e
                       f"Apply this change: {prompt}\nReturn the COMPLETE updated HTML document.")
     else:
         gen_prompt = prompt
-    raw = await generate_text(session_id=session_id, system=build_system, prompt=gen_prompt)
+    raw = await generate_text(session_id=session_id, system=build_system, prompt=gen_prompt,
+                              provider=provider, model=model)
     html = strip_fences(raw)
     yield {"type": "step", "id": "build", "state": "done", "detail": "اكتمل البناء."}
     yield {"type": "artifact_html", "html": html}
