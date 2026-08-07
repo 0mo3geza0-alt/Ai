@@ -87,7 +87,7 @@ export default function Admin() {
           <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-white/10">Users</TabsTrigger>
           <TabsTrigger value="orgs" data-testid="admin-tab-orgs" className="data-[state=active]:bg-white/10">Organizations</TabsTrigger>
           <TabsTrigger value="activity" data-testid="admin-tab-activity" className="data-[state=active]:bg-white/10">Activity</TabsTrigger>
-          <TabsTrigger value="providers" data-testid="admin-tab-providers" className="data-[state=active]:bg-white/10">AI Providers</TabsTrigger>
+          <TabsTrigger value="providers" data-testid="admin-tab-providers" className="data-[state=active]:bg-white/10">Universal Key</TabsTrigger>
         </TabsList>
 
         {/* OVERVIEW */}

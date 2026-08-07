@@ -161,9 +161,9 @@ async def on_startup():
     await _seed_admin()
     try:
         from llm import providers as _providers
-        await _providers.seed_defaults()
+        await _providers.load_key()
     except Exception as e:
-        logger.error("AI provider seed failed: %s", e)
+        logger.error("Universal key load failed: %s", e)
     try:
         init_storage()
     except Exception as e:

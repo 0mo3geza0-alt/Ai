@@ -5,13 +5,19 @@ import time
 import base64
 import asyncio
 import requests
-from openai import AsyncOpenAI
 from urllib.parse import quote
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, ImageContent, FileContentWithMimeType
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 from core.logging import logger
 
-EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
+from llm import providers as _providers
+
+
+def _key() -> str:
+    """Current Emergent Universal Key — hot-reloadable from the Admin Panel (no restart)."""
+    return _providers.get_key()
+
+
 INTEGRATION_PROXY_BASE = os.environ.get("INTEGRATION_PROXY_URL", "https://integrations.emergentagent.com").rstrip("/")
 FAL_BASE = f"{INTEGRATION_PROXY_BASE}/api/v1/fal"
 
@@ -148,7 +154,7 @@ IDENTITY = (
 
 
 def _new_chat(session_id: str, system: str, provider: str, model: str) -> LlmChat:
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id,
+    chat = LlmChat(api_key=_key(), session_id=session_id,
                    system_message=IDENTITY + (system or ""))
     chat.with_model(provider, model)
     return chat
@@ -204,28 +210,8 @@ async def _emergent_generate_text(session_id: str, system: str, prompt: str,
 
 async def generate_text(session_id: str, system: str, prompt: str,
                         provider: str = None, model: str = None, history: str = "") -> str:
-    """Text generation routed through the admin-managed provider chain first
-    (direct keys, priority + auto-fallback), then the built-in Emergent key as a
-    final safety net. Internal calls that pin a specific provider/model use
-    Emergent directly to preserve their exact behavior."""
-    full = (history + "\n" + prompt) if history else prompt
-    if provider is None and model is None:
-        try:
-            from llm import providers as _P
-            text, _used = await _P.generate_text(IDENTITY + (system or ""), full, rtype="text")
-            return text
-        except Exception as e:  # noqa: BLE001
-            logger.error("provider-chain text failed, using Emergent: %s", e)
-    _t0 = time.time()
-    text = await _emergent_generate_text(session_id, system, prompt, provider, model, history)
-    try:
-        from llm import providers as _P
-        pt, _ = _P.est_tokens(system, full)
-        await _P.log_emergent(model or DEFAULT_TEXT[1], True, (time.time() - _t0) * 1000,
-                              pt, _P._count_tokens(text), rtype="text")
-    except Exception:
-        pass
-    return text
+    """Text generation via the Emergent Universal Key (with model auto-fallback)."""
+    return await _emergent_generate_text(session_id, system, prompt, provider, model, history)
 
 
 # ==================================================================== NEXUS PRO
@@ -436,39 +422,9 @@ async def _emergent_stream_text(session_id: str, system: str, prompt: str,
 
 async def stream_text(session_id: str, system: str, prompt: str,
                       provider: str = None, model: str = None, history: str = ""):
-    """Streamed text via the admin-managed provider chain first, falling back to
-    the built-in Emergent key if no provider is configured or all fail before
-    producing output."""
-    full = (history + "\n" + prompt) if history else prompt
-    if provider is None and model is None:
-        need_fallback = False
-        try:
-            from llm import providers as _P
-            async for ev in _P.stream_text(IDENTITY + (system or ""), full, rtype="text"):
-                if ev.get("fallback"):
-                    need_fallback = True
-                    break
-                if ev.get("delta"):
-                    yield ev["delta"]
-                if ev.get("done"):
-                    return
-        except Exception as e:  # noqa: BLE001
-            logger.error("provider-chain stream failed, using Emergent: %s", e)
-            need_fallback = True
-        if not need_fallback:
-            return
-    _t0 = time.time()
-    _acc = []
+    """Streamed text via the Emergent Universal Key."""
     async for piece in _emergent_stream_text(session_id, system, prompt, provider, model, history):
-        _acc.append(piece)
         yield piece
-    try:
-        from llm import providers as _P
-        pt, _ = _P.est_tokens(system, full)
-        await _P.log_emergent(model or DEFAULT_TEXT[1], True, (time.time() - _t0) * 1000,
-                              pt, _P._count_tokens("".join(_acc)), rtype="text")
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------- intent routing (unified chat)
@@ -546,7 +502,7 @@ async def route_intent(message: str, history: str = "", has_image: bool = False,
 
 async def edit_image(prompt: str, image_b64: str):
     """Edit an existing image with nano-banana using the source image as reference."""
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"imgedit-{uuid.uuid4().hex}", system_message="You are an AI image editor.")
+    chat = LlmChat(api_key=_key(), session_id=f"imgedit-{uuid.uuid4().hex}", system_message="You are an AI image editor.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
     async with _LLM_SEM:
         _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt, file_contents=[ImageContent(image_base64=image_b64)]))
@@ -570,28 +526,10 @@ async def describe_media(prompt: str, image_b64: str = None, file_path: str = No
 
 async def stream_chat(session_id: str, system: str, prompt: str, history: str = "",
                       image_b64: str = None, file_path: str = None, file_mime: str = None):
-    """Stream a chat reply token-by-token, optionally grounded on an attached image/file.
-    Text-only turns go through the admin-managed provider chain (Emergent fallback);
-    multimodal turns (image/file) stay on Emergent's Gemini for vision grounding."""
+    """Stream a chat reply token-by-token via the Emergent Universal Key,
+    optionally grounded on an attached image/file (Gemini vision)."""
     multimodal = bool(image_b64 or file_path)
     full = (history + "\n" + prompt) if history else prompt
-    if not multimodal:
-        need_fallback = False
-        try:
-            from llm import providers as _P
-            async for ev in _P.stream_text(IDENTITY + (system or ""), full, rtype="chat"):
-                if ev.get("fallback"):
-                    need_fallback = True
-                    break
-                if ev.get("delta"):
-                    yield ev["delta"]
-                if ev.get("done"):
-                    return
-        except Exception as e:  # noqa: BLE001
-            logger.error("provider-chain chat failed, using Emergent: %s", e)
-            need_fallback = True
-        if not need_fallback:
-            return
     provider, model = ("gemini", "gemini-3-flash-preview") if multimodal else DEFAULT_TEXT
     chat = _new_chat(session_id, system, provider, model)
     contents = []
@@ -600,25 +538,14 @@ async def stream_chat(session_id: str, system: str, prompt: str, history: str = 
     if file_path:
         contents.append(FileContentWithMimeType(file_path=file_path, mime_type=file_mime or "application/pdf"))
     msg = UserMessage(text=full, file_contents=contents) if contents else UserMessage(text=full)
-    _t0 = time.time()
-    _acc = []
     async with _LLM_SEM:
         async for event in chat.stream_message(msg):
             if isinstance(event, TextDelta) and event.content:
-                _acc.append(event.content)
                 yield event.content
-    try:
-        from llm import providers as _P
-        pt, _ = _P.est_tokens(system, full)
-        await _P.log_emergent(model, True, (time.time() - _t0) * 1000,
-                              pt, _P._count_tokens("".join(_acc)),
-                              rtype=("chat-multimodal" if multimodal else "chat"))
-    except Exception:
-        pass
 
 
 async def generate_image(prompt: str):
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"img-{uuid.uuid4().hex}", system_message="You are an AI image generator.")
+    chat = LlmChat(api_key=_key(), session_id=f"img-{uuid.uuid4().hex}", system_message="You are an AI image generator.")
     chat.with_model(*IMAGE_MODEL).with_params(modalities=["image", "text"])
     async with _LLM_SEM:
         _, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
@@ -636,29 +563,7 @@ async def generate_audio(text: str, voice: str = "alloy", model: str = TTS_MODEL
     except (TypeError, ValueError):
         speed = 1.0
     speed = max(0.25, min(4.0, speed))
-    # Prefer the owner's own OpenAI key (if an OpenAI provider is enabled with a
-    # key in the Admin panel), otherwise use the built-in Emergent key.
-    try:
-        from llm import providers as _P
-        direct = await _P.direct_key("openai")
-    except Exception:
-        direct = None
-    if direct:
-        api_key, base_url = direct
-        try:
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url or None, timeout=90.0, max_retries=1)
-            chain = [model] + [m for m in ("tts-1-hd", "tts-1") if m != model]
-            for mdl in chain:
-                try:
-                    resp = await client.audio.speech.create(
-                        model=mdl, voice=voice, input=text[:4096],
-                        response_format="mp3", speed=speed)
-                    return resp.content
-                except Exception as e:  # noqa: BLE001
-                    logger.error("direct OpenAI TTS %s failed: %s", mdl, e)
-        except Exception as e:  # noqa: BLE001
-            logger.error("direct OpenAI TTS client failed, using Emergent: %s", e)
-    tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
+    tts = OpenAITextToSpeech(api_key=_key())
     # Try the requested (HD) model first; fall back to the faster standard model so a live
     # voice turn is (almost) never returned without audio.
     chain = [model] + [m for m in ("tts-1-hd", "tts-1") if m != model]
@@ -678,7 +583,7 @@ MUSIC_ENDPOINT = "fal-ai/stable-audio"
 
 
 def _fal_headers():
-    return {"Authorization": f"Bearer {EMERGENT_LLM_KEY}", "Content-Type": "application/json"}
+    return {"Authorization": f"Bearer {_key()}", "Content-Type": "application/json"}
 
 
 def _fal_run(endpoint_id: str, payload: dict, timeout: int = 240) -> dict:
