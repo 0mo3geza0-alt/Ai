@@ -6,7 +6,7 @@ import sys
 import time
 
 # Base URL from frontend/.env
-BASE_URL = "https://vibe-preview-6.preview.emergentagent.com"
+BASE_URL = "https://github-extractor-2.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 # Test credentials from /app/memory/test_credentials.md

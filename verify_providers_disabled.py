@@ -5,7 +5,7 @@ Verify all direct providers are DISABLED at the end
 import requests
 import json
 
-BASE_URL = "https://b56603c6-4e16-41ee-a1f9-a01a1c612d5a.preview.emergentagent.com/api"
+BASE_URL = "https://github-extractor-2.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@aiplatform.com"
 ADMIN_PASSWORD = "admin12345"
 

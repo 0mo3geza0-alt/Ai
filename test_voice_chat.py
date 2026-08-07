@@ -18,7 +18,7 @@ import sys
 import time
 
 # Backend URL from frontend/.env
-BASE_URL = "https://vibe-preview-6.preview.emergentagent.com/api"
+BASE_URL = "https://github-extractor-2.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@aiplatform.com"
