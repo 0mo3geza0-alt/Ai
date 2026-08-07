@@ -8,7 +8,7 @@ import time
 import random
 import string
 
-BASE_URL = "https://6cfc59a3-dccb-44a3-b4d3-2527833d0acd.preview.emergentagent.com/api"
+BASE_URL = "https://inspiring-wozniak-12.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "admin@aiplatform.com"

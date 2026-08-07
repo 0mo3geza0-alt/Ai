@@ -6,7 +6,7 @@ import sys
 import time
 
 # Base URL from frontend/.env
-BASE_URL = "https://github-extractor-2.preview.emergentagent.com"
+BASE_URL = "https://inspiring-wozniak-12.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 # Test credentials from /app/memory/test_credentials.md

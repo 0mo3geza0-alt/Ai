@@ -13,7 +13,7 @@ import requests
 from typing import List, Dict, Any
 
 # Backend URL from frontend/.env
-BACKEND_URL = "https://6cfc59a3-dccb-44a3-b4d3-2527833d0acd.preview.emergentagent.com/api"
+BACKEND_URL = "https://inspiring-wozniak-12.preview.emergentagent.com/api"
 
 # Admin credentials from test_credentials.md
 ADMIN_EMAIL = "admin@aiplatform.com"

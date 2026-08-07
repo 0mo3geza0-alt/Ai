@@ -11,7 +11,7 @@ import requests
 from typing import Dict, Any
 
 # Backend URL from frontend/.env
-BACKEND_URL = "https://github-extractor-2.preview.emergentagent.com"
+BACKEND_URL = "https://inspiring-wozniak-12.preview.emergentagent.com"
 BASE_URL = f"{BACKEND_URL}/api"
 
 # Admin credentials
