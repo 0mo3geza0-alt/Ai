@@ -15,6 +15,15 @@ Build a production-grade Autonomous AI Agent Platform following a 15-phase roadm
 - `infra/`: Docker, docker-compose (artifacts).
 
 ## Implemented
+### Update (2025-07) — AI Provider Manager ✅ backend 9/9
+- **Multi-provider LLM gateway with encrypted, hot-reloadable keys.** New Admin → AI Providers page. Owner pastes/updates provider API keys from the panel and changes take effect INSTANTLY (providers read fresh from DB each call, no restart/redeploy).
+- 14 providers via unified `openai.AsyncOpenAI` (per-provider base_url): OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, xAI, Cerebras, HuggingFace, Together, Fireworks, SambaNova, Ollama, Custom.
+- Keys encrypted at rest (Fernet, `ENCRYPTION_KEY` in backend/.env). Frontend only ever sees `key_masked` (sk-****abcd); masked value on PUT never overwrites the stored key.
+- Files: `backend/llm/providers.py` (registry, crypto, chain, test, usage, logs), `backend/llm/providers_api.py` (admin routes `/api/admin/providers*`), gateway `generate_text/stream_text/stream_chat` route through enabled providers by priority (skip over monthly_budget) then fall back to built-in Emergent key. Collections: `ai_providers` (uuid), `ai_provider_logs`.
+- Admin API: GET / (list), GET /catalog, POST /, PUT /{id}, DELETE /{id}, POST /{id}/test (REAL upstream call), GET /usage, GET /logs. Priority + auto-fallback (key rotation), per-provider monthly budget, manual per-model pricing (price_in/price_out per 1M tokens) → cost estimates, request logs, usage dashboard (today/month reqs, est cost, avg latency, success rate). Frontend `frontend/src/pages/AdminProviders.js` (tab in Admin.js).
+- TTS (generate_audio) uses owner's direct OpenAI key if an OpenAI provider is enabled+keyed, else Emergent. Council + image generation stay on Emergent.
+
+
 ### Update (2025-07) — Video removed + Live Voice Conversation ✅ verified
 - Restored app after GitHub import: rebuilt missing `backend/.env` & `frontend/.env` (MONGO_URL, DB_NAME, JWT_SECRET, EMERGENT_LLM_KEY, REACT_APP_BACKEND_URL). Admin: admin@aiplatform.com / admin12345.
 - REMOVED all video generation (gateway `generate_video`/VIDEO_ENDPOINT, studio `/generate/video`, VideoBody, video cost, intent-router `video` action, admin video stat, and all frontend video UI). Backend tested 5/5.
