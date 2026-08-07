@@ -19,7 +19,7 @@ from llm import gateway
 
 router = APIRouter(prefix="/api")
 
-COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2, "nexus": 8}
+COST = {"chat": 1, "document": 1, "code": 2, "image": 5, "audio": 3, "music": 8, "research": 2, "nexus": 0.5}
 
 
 # ----------------------------------------------------------------- schemas
